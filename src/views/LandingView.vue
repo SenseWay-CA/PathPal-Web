@@ -10,7 +10,11 @@ onMounted(() => {
   const geometry = new THREE.BoxGeometry(1, 1, 1)
   const material = new THREE.MeshBasicMaterial({ color: 0xff0000 })
   const mesh = new THREE.Mesh(geometry, material)
+  mesh.position.set(3, 0, 0)
   scene.add(mesh)
+
+  const axesHelper = new THREE.AxesHelper(5)
+  scene.add(axesHelper)
 
   const sizes = {
     width: 800,
@@ -18,7 +22,7 @@ onMounted(() => {
   }
 
   const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height)
-  camera.position.z = 3
+  camera.position.set(1, 1, 5)
   scene.add(camera)
 
   const renderer = new THREE.WebGLRenderer({
