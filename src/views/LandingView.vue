@@ -2,6 +2,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { onMounted, onUnmounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 
 const containerRef = ref(null)
 let camera
@@ -79,10 +80,7 @@ const initThree = () => {
   crossRoad.receiveShadow = true
   scene.add(crossRoad)
 
-  // -- SIDEWALKS REMOVED AS REQUESTED --
-
-  // -- NEW AND CORRECTED CROSSWALKS --
-  const crosswalkLength = 12 // How far the stripes extend from the road edge.
+  const crosswalkLength = 12
   const stripeWidth = 2.5
   const stripeSpacing = 1.5
   const numStripes = 7
@@ -90,57 +88,43 @@ const initThree = () => {
   const startOffset = -totalStripesWidth / 2 + stripeWidth / 2
   const roadEdge = roadWidth / 2
 
-  // Create the ladder stripes
   for (let i = 0; i < numStripes; i++) {
     const currentStripeOffset = startOffset + i * (stripeWidth + stripeSpacing)
-
-    // Top crosswalk (at z = -16, extends to z = -28)
     const topStripeGeo = new THREE.BoxGeometry(stripeWidth, 0.1, crosswalkLength)
     const topStripe = new THREE.Mesh(topStripeGeo, whiteMaterial)
     topStripe.position.set(currentStripeOffset, 0.1, -roadEdge - crosswalkLength / 2)
     topStripe.receiveShadow = true
     scene.add(topStripe)
-
-    // Bottom crosswalk (at z = 16, extends to z = 28)
     const bottomStripe = new THREE.Mesh(topStripeGeo, whiteMaterial)
     bottomStripe.position.set(currentStripeOffset, 0.1, roadEdge + crosswalkLength / 2)
     bottomStripe.receiveShadow = true
     scene.add(bottomStripe)
-
-    // Left crosswalk (at x = -16, extends to x = -28)
     const leftStripeGeo = new THREE.BoxGeometry(crosswalkLength, 0.1, stripeWidth)
     const leftStripe = new THREE.Mesh(leftStripeGeo, whiteMaterial)
     leftStripe.position.set(-roadEdge - crosswalkLength / 2, 0.1, currentStripeOffset)
     leftStripe.receiveShadow = true
     scene.add(leftStripe)
-
-    // Right crosswalk (at x = 16, extends to x = 28)
     const rightStripe = new THREE.Mesh(leftStripeGeo, whiteMaterial)
     rightStripe.position.set(roadEdge + crosswalkLength / 2, 0.1, currentStripeOffset)
     rightStripe.receiveShadow = true
     scene.add(rightStripe)
   }
-
-  // Create the boundary lines
   const boundaryLineGeoTB = new THREE.BoxGeometry(totalStripesWidth, 0.1, 0.5)
   const boundaryLineGeoLR = new THREE.BoxGeometry(0.5, 0.1, totalStripesWidth)
-
   const createBoundaryLine = (x, z, geo) => {
     const line = new THREE.Mesh(geo, whiteMaterial)
     line.position.set(x, 0.1, z)
     line.receiveShadow = true
     scene.add(line)
   }
-
-  createBoundaryLine(0, -roadEdge, boundaryLineGeoTB) // Top inner
-  createBoundaryLine(0, -roadEdge - crosswalkLength, boundaryLineGeoTB) // Top outer
-  createBoundaryLine(0, roadEdge, boundaryLineGeoTB) // Bottom inner
-  createBoundaryLine(0, roadEdge + crosswalkLength, boundaryLineGeoTB) // Bottom outer
-  createBoundaryLine(-roadEdge, 0, boundaryLineGeoLR) // Left inner
-  createBoundaryLine(-roadEdge - crosswalkLength, 0, boundaryLineGeoLR) // Left outer
-  createBoundaryLine(roadEdge, 0, boundaryLineGeoLR) // Right inner
-  createBoundaryLine(roadEdge + crosswalkLength, 0, boundaryLineGeoLR) // Right outer
-  // -- END OF NEW CROSSWALKS --
+  createBoundaryLine(0, -roadEdge, boundaryLineGeoTB)
+  createBoundaryLine(0, -roadEdge - crosswalkLength, boundaryLineGeoTB)
+  createBoundaryLine(0, roadEdge, boundaryLineGeoTB)
+  createBoundaryLine(0, roadEdge + crosswalkLength, boundaryLineGeoTB)
+  createBoundaryLine(-roadEdge, 0, boundaryLineGeoLR)
+  createBoundaryLine(-roadEdge - crosswalkLength, 0, boundaryLineGeoLR)
+  createBoundaryLine(roadEdge, 0, boundaryLineGeoLR)
+  createBoundaryLine(roadEdge + crosswalkLength, 0, boundaryLineGeoLR)
 
   const createDetailedBuilding = (x, z, width, depth, height) => {
     const buildingGroup = new THREE.Group()
@@ -258,7 +242,6 @@ const initThree = () => {
   createTrafficLight(lightPos, -lightPos, 0)
   createTrafficLight(-lightPos, -lightPos, Math.PI / 2)
 
-  // Man & Cane
   elderlyMan = new THREE.Group()
   const manMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 })
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.6, 2.8, 32), manMaterial)
@@ -319,7 +302,6 @@ const initThree = () => {
   elderlyMan.rotation.y = (-3 * Math.PI) / 4
   scene.add(elderlyMan)
 
-  // Controls
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.minDistance = 20
@@ -355,20 +337,24 @@ onMounted(() => {
       <div class="w-full flex justify-between items-center p-6 pointer-events-auto">
         <div class="text-white text-3xl font-bold">SenseWay</div>
         <div class="space-x-4">
-          <button
-            class="px-6 py-2 bg-white text-black rounded-full font-semibold hover:bg-gray-200 transition-colors"
-          >
-            Login
-          </button>
-          <button
-            class="px-6 py-2 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition-colors"
-          >
-            Signup
-          </button>
+          <RouterLink to="/auth">
+            <button
+              class="px-6 py-2 bg-white text-black rounded-full font-semibold hover:bg-gray-200 transition-colors"
+            >
+              Login
+            </button>
+          </RouterLink>
+          <RouterLink to="/auth">
+            <button
+              class="px-6 py-2 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition-colors"
+            >
+              Signup
+            </button>
+          </RouterLink>
         </div>
       </div>
       <div class="flex-grow flex items-end justify-start p-12">
-        <div class="text-white text-5xl font-extrabold max-w-3xl leading-tight">
+        <div class="text-white text-5xl font-extrabold max-w-2xl leading-tight">
           Surrender your steps.<br />
           Obey the algorithm.<br />
           We know where you're going.
