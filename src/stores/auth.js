@@ -5,24 +5,48 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false)
   const user = ref(null)
 
-  // Placeholder for login action
   async function login(email, password) {
-    // Here you will make the API call to your Go backend
-    console.log('Logging in with:', email, password)
-    // On successful login from backend:
-    // isAuthenticated.value = true
-    // user.value = { email } // or whatever user data your API returns
+    const response = await fetch('http://api.senseway.ca/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      localStorage.setItem('token', data.token)
+      isAuthenticated.value = true
+      user.value = { email }
+      return true
+    } else {
+      console.error('Login failed')
+      return false
+    }
   }
 
-  // Placeholder for registration action
   async function register(email, password) {
-    // Here you will make the API call to your Go backend
-    console.log('Registering with:', email, password)
-    // On successful registration:
-    // Potentially log the user in directly or redirect to login
+    const response = await fetch('http://api.senseway.ca/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    })
+
+    if (response.ok) {
+      console.log('Registration successful')
+      // Automatically log the user in after successful registration
+      return await login(email, password)
+    } else {
+      console.error('Registration failed')
+      return false
+    }
   }
 
   function logout() {
+    localStorage.removeItem('token')
     isAuthenticated.value = false
     user.value = null
   }

@@ -1,8 +1,26 @@
 <script setup>
 import { ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+import { useRouter } from 'vue-router'
 
-// This will allow us to toggle between Login and Register forms
+const authStore = useAuthStore()
+const router = useRouter()
 const isLogin = ref(true)
+const email = ref('')
+const password = ref('')
+
+const handleSubmit = async () => {
+  let success = false
+  if (isLogin.value) {
+    success = await authStore.login(email.value, password.value)
+  } else {
+    success = await authStore.register(email.value, password.value)
+  }
+
+  if (success) {
+    router.push('/dashboard')
+  }
+}
 </script>
 
 <template>
@@ -30,7 +48,7 @@ const isLogin = ref(true)
             }}
           </p>
         </div>
-        <form class="grid gap-4">
+        <form @submit.prevent="handleSubmit" class="grid gap-4">
           <div class="grid gap-2">
             <label for="email" class="text-sm font-medium sr-only">Email</label>
             <input
@@ -38,6 +56,7 @@ const isLogin = ref(true)
               type="email"
               placeholder="name@example.com"
               required
+              v-model="email"
               class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500"
             />
           </div>
@@ -48,6 +67,7 @@ const isLogin = ref(true)
               type="password"
               placeholder="Password"
               required
+              v-model="password"
               class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500"
             />
           </div>
