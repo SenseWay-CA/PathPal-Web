@@ -5,10 +5,12 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
+  SidebarHeader,
+  SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { useRoute, RouterLink } from 'vue-router'
 
@@ -55,9 +57,14 @@ const items = [
 
 <template>
   <Sidebar collapsible="icon">
+    <SidebarHeader>
+      <div class="flex items-center gap-2">
+        <SidebarTrigger />
+        <span class="font-bold group-data-[collapsible=icon]:hidden">PathPal</span>
+      </div>
+    </SidebarHeader>
     <SidebarContent>
       <SidebarGroup>
-        <SidebarGroupLabel>PathPal</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.title">
@@ -78,5 +85,6 @@ const items = [
         </SidebarGroupContent>
       </SidebarGroup>
     </SidebarContent>
+    <SidebarRail />
   </Sidebar>
 </template>
