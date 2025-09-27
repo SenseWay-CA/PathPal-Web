@@ -16,25 +16,20 @@ const router = createRouter({
       name: 'auth',
       component: AuthView,
     },
-    // Example of a protected route
     {
       path: '/dashboard',
       name: 'dashboard',
-      // This will be a new component you create for the user's dashboard
       component: () => import('../views/DashboardView.vue'),
       meta: { requiresAuth: true },
     },
   ],
 })
 
-// Navigation guard to protect routes
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    // If route requires auth and user is not authenticated, redirect to login
     next({ name: 'auth' })
   } else {
-    // Otherwise, allow navigation
     next()
   }
 })
