@@ -2,8 +2,14 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LandingView from '../views/LandingView.vue'
 import AuthView from '../views/AuthView.vue'
 import DashboardView from '../views/DashboardView.vue'
-import DashboardHomeView from '../views/DashboardHomeView.vue' // <-- Import the new component
+import HomeView from '../views/HomeView.vue'
 import { useAuthStore } from '@/stores/auth'
+import LocationTrackingView from '@/views/LocationTrackingView.vue'
+import HealthMonitoringView from '@/views/HealthMonitoringView.vue'
+import SafetyZonesView from '@/views/SafetyZonesView.vue'
+import TrustedContactsView from '@/views/TrustedContactsView.vue'
+import DeviceSettingsView from '@/views/DeviceSettingsView.vue'
+import NotificationsView from '@/views/NotificationsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -26,37 +32,37 @@ const router = createRouter({
         {
           path: '',
           name: 'dashboard',
-          component: DashboardHomeView,
+          component: HomeView,
         },
         {
           path: 'location-tracking',
           name: 'location-tracking',
-          component: { template: '<div class="text-white">Location Tracking Page</div>' },
+          component: LocationTrackingView,
         },
         {
           path: 'health-monitoring',
           name: 'health-monitoring',
-          component: { template: '<div class="text-white">Health Monitoring Page</div>' },
+          component: HealthMonitoringView,
         },
         {
           path: 'safety-zones',
           name: 'safety-zones',
-          component: { template: '<div class="text-white">Safety Zones Page</div>' },
+          component: SafetyZonesView,
         },
         {
           path: 'trusted-contacts',
           name: 'trusted-contacts',
-          component: { template: '<div class="text-white">Trusted Contacts Page</div>' },
+          component: TrustedContactsView,
         },
         {
           path: 'device-settings',
           name: 'device-settings',
-          component: { template: '<div class="text-white">Device Settings Page</div>' },
+          component: DeviceSettingsView,
         },
         {
           path: 'notifications',
           name: 'notifications',
-          component: { template: '<div class="text-white">Notifications Page</div>' },
+          component: NotificationsView,
         },
       ],
     },
