@@ -1,5 +1,5 @@
 <script setup>
-import { Calendar, Home, Inbox, Search, Settings } from 'lucide-vue-next'
+import { Home, MapPin, HeartPulse, Shield, Users, Settings, Bell } from 'lucide-vue-next'
 import {
   Sidebar,
   SidebarContent,
@@ -13,29 +13,39 @@ import {
 
 const items = [
   {
-    title: 'Home',
+    title: 'Dashboard',
     url: '#',
     icon: Home,
   },
   {
-    title: 'Inbox',
+    title: 'Location Tracking',
     url: '#',
-    icon: Inbox,
+    icon: MapPin,
   },
   {
-    title: 'Calendar',
+    title: 'Health Monitoring',
     url: '#',
-    icon: Calendar,
+    icon: HeartPulse,
   },
   {
-    title: 'Search',
+    title: 'Safety Zones',
     url: '#',
-    icon: Search,
+    icon: Shield,
   },
   {
-    title: 'Settings',
+    title: 'Trusted Contacts',
+    url: '#',
+    icon: Users,
+  },
+  {
+    title: 'Device Settings',
     url: '#',
     icon: Settings,
+  },
+  {
+    title: 'Notifications',
+    url: '#',
+    icon: Bell,
   },
 ]
 </script>
