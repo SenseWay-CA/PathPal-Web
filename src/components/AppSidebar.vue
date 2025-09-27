@@ -16,7 +16,7 @@ const route = useRoute()
 
 const items = [
   {
-    title: 'Dashboard',
+    title: 'Home',
     to: { name: 'dashboard' },
     icon: Home,
   },
