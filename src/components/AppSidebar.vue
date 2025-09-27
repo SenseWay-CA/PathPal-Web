@@ -74,7 +74,7 @@ const handleLogout = () => {
 <template>
   <Sidebar collapsible="icon">
     <SidebarHeader>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1">
         <SidebarTrigger />
         <span class="font-bold group-data-[collapsible=icon]:hidden">PathPal</span>
       </div>
