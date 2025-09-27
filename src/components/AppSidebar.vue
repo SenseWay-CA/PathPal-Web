@@ -10,41 +10,44 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
+import { useRoute, RouterLink } from 'vue-router'
+
+const route = useRoute()
 
 const items = [
   {
     title: 'Dashboard',
-    url: '#',
+    to: { name: 'dashboard' },
     icon: Home,
   },
   {
     title: 'Location Tracking',
-    url: '#',
+    to: { name: 'location-tracking' },
     icon: MapPin,
   },
   {
     title: 'Health Monitoring',
-    url: '#',
+    to: { name: 'health-monitoring' },
     icon: HeartPulse,
   },
   {
     title: 'Safety Zones',
-    url: '#',
+    to: { name: 'safety-zones' },
     icon: Shield,
   },
   {
     title: 'Trusted Contacts',
-    url: '#',
+    to: { name: 'trusted-contacts' },
     icon: Users,
   },
   {
     title: 'Device Settings',
-    url: '#',
+    to: { name: 'device-settings' },
     icon: Settings,
   },
   {
     title: 'Notifications',
-    url: '#',
+    to: { name: 'notifications' },
     icon: Bell,
   },
 ]
@@ -58,12 +61,17 @@ const items = [
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.title">
-              <SidebarMenuButton asChild>
-                <a :href="item.url">
+              <RouterLink :to="item.to" custom v-slot="{ navigate, isActive, href }">
+                <SidebarMenuButton
+                  as="a"
+                  :href="href"
+                  @click="navigate"
+                  :isActive="item.to.name === 'dashboard' ? route.name === 'dashboard' : isActive"
+                >
                   <component :is="item.icon" />
                   <span>{{ item.title }}</span>
-                </a>
-              </SidebarMenuButton>
+                </SidebarMenuButton>
+              </RouterLink>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
