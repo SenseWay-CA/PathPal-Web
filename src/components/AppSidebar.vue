@@ -54,7 +54,7 @@ const items = [
 </script>
 
 <template>
-  <Sidebar>
+  <Sidebar collapsible="icon">
     <SidebarContent>
       <SidebarGroup>
         <SidebarGroupLabel>PathPal</SidebarGroupLabel>
@@ -67,6 +67,7 @@ const items = [
                   :href="href"
                   @click="navigate"
                   :isActive="item.to.name === 'dashboard' ? route.name === 'dashboard' : isActive"
+                  :tooltip="item.title"
                 >
                   <component :is="item.icon" />
                   <span>{{ item.title }}</span>
