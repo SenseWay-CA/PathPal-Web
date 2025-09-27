@@ -5,51 +5,63 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false)
   const user = ref(null)
 
+  const fetchWithCredentials = (url, options = {}) => {
+    options.credentials = 'include'
+    options.headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    }
+    return fetch(url, options)
+  }
+
   async function login(email, password) {
-    const response = await fetch('http://api.senseway.ca/login', {
+    const response = await fetchWithCredentials('https://api.senseway.ca/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ email, password }),
     })
 
     if (response.ok) {
-      const data = await response.json()
-      localStorage.setItem('token', data.token)
+      const userData = await response.json()
       isAuthenticated.value = true
-      user.value = { email }
+      user.value = userData
       return true
     } else {
-      console.error('Login failed')
+      isAuthenticated.value = false
+      user.value = null
       return false
     }
   }
 
   async function register(email, password) {
-    const response = await fetch('http://api.senseway.ca/register', {
+    const response = await fetchWithCredentials('https://api.senseway.ca/register', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ email, password }),
     })
-
-    if (response.ok) {
-      console.log('Registration successful')
-      // Automatically log the user in after successful registration
-      return await login(email, password)
-    } else {
-      console.error('Registration failed')
-      return false
-    }
+    return response.ok ? await login(email, password) : false
   }
 
-  function logout() {
-    localStorage.removeItem('token')
+  async function logout() {
+    await fetchWithCredentials('https://api.senseway.ca/logout', { method: 'POST' })
     isAuthenticated.value = false
     user.value = null
   }
 
-  return { isAuthenticated, user, login, register, logout }
+  async function checkAuth() {
+    try {
+      const response = await fetchWithCredentials('https://api.senseway.ca/check-auth')
+      if (response.ok) {
+        const userData = await response.json()
+        isAuthenticated.value = true
+        user.value = userData
+      } else {
+        isAuthenticated.value = false
+        user.value = null
+      }
+    } catch (error) {
+      isAuthenticated.value = false
+      user.value = null
+    }
+  }
+
+  return { isAuthenticated, user, login, register, logout, checkAuth }
 })
