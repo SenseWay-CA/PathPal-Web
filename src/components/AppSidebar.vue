@@ -1,22 +1,35 @@
 <script setup>
-import { Home, MapPin, HeartPulse, Shield, Users, Settings, Bell } from 'lucide-vue-next'
+import { Home, MapPin, HeartPulse, Shield, Users, Settings, Bell, User } from 'lucide-vue-next'
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
+  SidebarHeader,
+  SidebarTrigger,
+  SidebarFooter,
 } from '@/components/ui/sidebar'
-import { useRoute, RouterLink } from 'vue-router'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { useRoute, RouterLink, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 
 const items = [
   {
-    title: 'Dashboard',
+    title: 'Home',
     to: { name: 'dashboard' },
     icon: Home,
   },
@@ -51,13 +64,23 @@ const items = [
     icon: Bell,
   },
 ]
+
+const handleLogout = () => {
+  authStore.logout()
+  router.push('/auth')
+}
 </script>
 
 <template>
-  <Sidebar>
+  <Sidebar collapsible="icon">
+    <SidebarHeader>
+      <div class="flex items-center gap-2">
+        <SidebarTrigger />
+        <span class="font-bold group-data-[collapsible=icon]:hidden">PathPal</span>
+      </div>
+    </SidebarHeader>
     <SidebarContent>
       <SidebarGroup>
-        <SidebarGroupLabel>PathPal</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.title">
@@ -67,6 +90,7 @@ const items = [
                   :href="href"
                   @click="navigate"
                   :isActive="item.to.name === 'dashboard' ? route.name === 'dashboard' : isActive"
+                  :tooltip="item.title"
                 >
                   <component :is="item.icon" />
                   <span>{{ item.title }}</span>
@@ -77,5 +101,30 @@ const items = [
         </SidebarGroupContent>
       </SidebarGroup>
     </SidebarContent>
+    <SidebarFooter>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <SidebarMenuButton class="group-data-[collapsible=icon]:justify-center">
+            <Avatar class="size-4">
+              <AvatarImage src="https://github.com/radix-vue.png" alt="@radix-vue" />
+              <AvatarFallback>
+                <User class="size-3" />
+              </AvatarFallback>
+            </Avatar>
+            <span class="truncate group-data-[collapsible=icon]:hidden">
+              {{ authStore.user?.email }}
+            </span>
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          class="w-[--radix-dropdown-menu-trigger-width]"
+        >
+          <DropdownMenuItem @click="handleLogout"> Logout </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarFooter>
+    <SidebarRail />
   </Sidebar>
 </template>
