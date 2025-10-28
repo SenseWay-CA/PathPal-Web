@@ -23,57 +23,51 @@ const router = createRouter({
       path: '/auth',
       name: 'auth',
       component: AuthView,
+      meta: { requiresGuest: true },
     },
     {
       path: '/dashboard',
       component: DashboardView,
       meta: { requiresAuth: true },
       children: [
-        {
-          path: '',
-          name: 'dashboard',
-          component: HomeView,
-        },
-        {
-          path: 'location-tracking',
-          name: 'location-tracking',
-          component: LocationTrackingView,
-        },
-        {
-          path: 'health-monitoring',
-          name: 'health-monitoring',
-          component: HealthMonitoringView,
-        },
-        {
-          path: 'safety-zones',
-          name: 'safety-zones',
-          component: SafetyZonesView,
-        },
-        {
-          path: 'trusted-contacts',
-          name: 'trusted-contacts',
-          component: TrustedContactsView,
-        },
-        {
-          path: 'device-settings',
-          name: 'device-settings',
-          component: DeviceSettingsView,
-        },
-        {
-          path: 'notifications',
-          name: 'notifications',
-          component: NotificationsView,
-        },
+        { path: '', name: 'dashboard', component: HomeView },
+        { path: 'location-tracking', name: 'location-tracking', component: LocationTrackingView },
+        { path: 'health-monitoring', name: 'health-monitoring', component: HealthMonitoringView },
+        { path: 'safety-zones', name: 'safety-zones', component: SafetyZonesView },
+        { path: 'trusted-contacts', name: 'trusted-contacts', component: TrustedContactsView },
+        { path: 'device-settings', name: 'device-settings', component: DeviceSettingsView },
+        { path: 'notifications', name: 'notifications', component: NotificationsView },
       ],
     },
+
+    // {
+    //   path: '/:pathMatch(.*)*',
+    //   name: 'NotFound',
+    //   component: () => import('../views/NotFoundView.vue'),
+    // },
   ],
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
+
+  if (
+    (!authStore.isAuthenticated && authStore.user === null && to.name !== 'landing') ||
+    (to.meta.requiresAuth && !authStore.isAuthenticated)
+  ) {
+    if (authStore.user === null) {
+      await authStore.checkAuth()
+    }
+  }
+
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    console.log('Redirecting to auth, requiresAuth failed')
     next({ name: 'auth' })
+  } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
+    console.log('Redirecting to dashboard, requiresGuest failed')
+    next({ name: 'dashboard' })
   } else {
+    console.log('Allowing navigation to', to.name)
     next()
   }
 })
