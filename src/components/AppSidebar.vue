@@ -65,8 +65,8 @@ const items = [
   },
 ]
 
-const handleLogout = () => {
-  authStore.logout()
+const handleLogout = async () => {
+  await authStore.logout()
   router.push('/auth')
 }
 </script>
@@ -85,13 +85,9 @@ const handleLogout = () => {
           <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.title">
               <RouterLink :to="item.to" custom v-slot="{ navigate, isActive, href }">
-                <SidebarMenuButton
-                  as="a"
-                  :href="href"
-                  @click="navigate"
+                <SidebarMenuButton as="a" :href="href" @click="navigate"
                   :isActive="item.to.name === 'dashboard' ? route.name === 'dashboard' : isActive"
-                  :tooltip="item.title"
-                >
+                  :tooltip="item.title">
                   <component :is="item.icon" />
                   <span>{{ item.title }}</span>
                 </SidebarMenuButton>
@@ -116,11 +112,7 @@ const handleLogout = () => {
             </span>
           </SidebarMenuButton>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="top"
-          align="start"
-          class="w-[--radix-dropdown-menu-trigger-width]"
-        >
+        <DropdownMenuContent side="top" align="start" class="w-[--radix-dropdown-menu-trigger-width]">
           <DropdownMenuItem @click="handleLogout"> Logout </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
