@@ -10,7 +10,7 @@ const url = "https://api.senseway.ca";
 const isDark = useDark()
 
 import { BatteryCharging } from 'lucide-vue-next';
-
+import L from "leaflet"
 import { Card, CardContent } from "@/components/ui/card"
 
 
@@ -61,9 +61,21 @@ const batteryPercentage = computed(() => {
   return value
 })
 
-const avatarOffsetX = ref(-19)   // move left/right  (px)
-const avatarOffsetY = ref(1.0)   // move up/down    (px)
-const avatarScale   = ref(1.07) // resize avatar + text
+const isAlertEvent = (event) => {
+  if (!event) return false
+
+  const type = (event.type || "").toString().toLowerCase()
+  const name = (event.name || "").toString().toLowerCase()
+
+  return type.includes("fall") || type.includes("sos") ||
+         name.includes("fall") || name.includes("sos")
+}
+
+
+// avatar sizing with help of java
+const avatarOffsetX = ref(-19) 
+const avatarOffsetY = ref(1.0)  
+const avatarScale   = ref(1.07) 
 
 
 const batteryImage = computed(() => {
@@ -95,10 +107,8 @@ const heartImages = [
   "https://i.gyazo.com/ce05866c1ded35069062c8fe4bec1a0a.png",
 ]
 
+// colors lol - edit only
 const heartColors = [
-  "rgb(255,243,242)", "rgb(255,235,234)", "rgb(254,227,226)", "rgb(254,220,218)",
-  "rgb(254,212,210)", "rgb(254,204,201)", "rgb(254,196,193)", "rgb(254,189,185)",
-  "rgb(254,181,177)", "rgb(255,173,169)", "rgb(255,165,161)", "rgb(255,158,153)",
   "rgb(255,150,144)", "rgb(255,142,136)", "rgb(255,134,128)", "rgb(255,127,120)",
   "rgb(255,119,112)", "rgb(255,111,104)", "rgb(255,103,95)",  "rgb(255,96,87)",
   "rgb(255,88,79)",  "rgb(255,80,71)",  "rgb(255,72,63)",  "rgb(255,65,55)",
@@ -107,16 +117,47 @@ const heartColors = [
   "rgb(236,11,0)",   "rgb(228,11,0)",   "rgb(220,11,0)",   "rgb(212,10,0)",
   "rgb(204,10,0)",   "rgb(195,9,0)",    "rgb(187,9,0)",    "rgb(179,9,0)"
 ]
+const heartColorsGreen = [
+  "rgb(178,213,178)", "rgb(147,196,147)", "rgb(173,210,173)", "rgb(141,193,141)",
+  "rgb(168,208,168)", "rgb(136,190,136)", "rgb(162,205,162)", "rgb(131,188,131)",
+  "rgb(157,202,157)", "rgb(125,185,125)", "rgb(152,199,152)", "rgb(120,182,120)",
+  "rgb(115,179,115)", "rgb(86,159,86)",   "rgb(110,176,110)", "rgb(83,153,83)",
+  "rgb(104,173,104)", "rgb(80,148,80)",   "rgb(99,170,99)",   "rgb(78,143,78)",
+  "rgb(94,167,94)",   "rgb(75,138,75)",   "rgb(89,164,89)",   "rgb(72,132,72)",
+  "rgb(69,127,69)",   "rgb(66,122,66)",   "rgb(63,116,63)",   "rgb(60,111,60)",
+  "rgb(57,106,57)",   "rgb(55,100,55)"
+];
+
+
+const activeHeartColors = computed(() => {
+  const hr = Number(status.value.heart_rate)
+
+  if (Number.isNaN(hr)) return heartColors
+
+  if (hr < 40 || hr > 140) return heartColors
+
+  return heartColorsGreen
+})
+
 
 const currentHeartTextColorIndex = ref(0)
-
-const currentHeartTextColor = computed(() =>
-  heartColors[currentHeartTextColorIndex.value]
-)
 const currentHeartImageIndex = ref(0)
 const currentHeartColorIndex = ref(0)
+
+const currentHeartTextColor = computed(() => {
+  const colors = activeHeartColors.value
+  const len = colors.length || 1
+  return colors[currentHeartTextColorIndex.value % len]
+})
+
 const currentHeartImage = computed(() => heartImages[currentHeartImageIndex.value])
-const currentHeartColor = computed(() => heartColors[currentHeartColorIndex.value])
+
+const currentHeartColor = computed(() => {
+  const colors = activeHeartColors.value
+  const len = colors.length || 1
+  return colors[currentHeartColorIndex.value % len]
+})
+
 let heartImageInterval = null
 let heartColorInterval = null
 
@@ -127,20 +168,43 @@ onMounted(() => {
   }, 300)
 
   heartColorInterval = setInterval(() => {
+    const colors = activeHeartColors.value
+    const len = colors.length || 1
+
     currentHeartColorIndex.value =
-      (currentHeartColorIndex.value + 1) % heartColors.length
+      (currentHeartColorIndex.value + 1) % len
 
     currentHeartTextColorIndex.value =
-      (currentHeartTextColorIndex.value - 1 + heartColors.length) %
-      heartColors.length
+      (currentHeartTextColorIndex.value - 1 + len) % len
   }, 50)
 })
-
 
 onUnmounted(() => {
   clearInterval(heartImageInterval)
   clearInterval(heartColorInterval)
 })
+
+// sos stuffies
+const alertColors = heartColors
+const alertColorIndex = ref(0)
+
+const currentAlertColor = computed(() => {
+  return alertColors[alertColorIndex.value % alertColors.length]
+})
+
+let alertColorInterval = null
+
+onMounted(() => {
+  alertColorInterval = setInterval(() => {
+    alertColorIndex.value =
+      (alertColorIndex.value + 1) % alertColors.length
+  }, 80)
+})
+
+onUnmounted(() => {
+  clearInterval(alertColorInterval)
+})
+
 
 
 
@@ -212,6 +276,12 @@ onUnmounted(() => {
   if (dataInterval) clearInterval(dataInterval);
 });
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                           C O N C E P T :  S E N S E W A Y
+//
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 </script>
 
 <template>
@@ -228,10 +298,10 @@ onUnmounted(() => {
 
         <div class="flex flex-col leading-tight">
           <span class="text-neutral-200 font-bold tracking-wide text-lg">
-            SenseWay
+            SenseWay™ DEMO
           </span>
           <span class="text-xs text-neutral-400">
-            Monitoring {{ userInfo.name }}'s Cane
+            Currently monitoring {{ userInfo.name }}'s Cane
           </span>
         </div>
       </div>
@@ -338,7 +408,7 @@ onUnmounted(() => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto w-full">
       <!-- Left Panel - Google Maps -->
       <div class="border-2 border-border rounded-3xl bg-card p-8 min-h-[500px] flex flex-col">
-        <h2 class="text-lg font-medium text-green-500 mb-4">Live Cane Location</h2>
+        <h2 class="text-lg font-medium text-neutral-100 mb-4">Live Cane Location</h2>
         <iframe width="100%" height="100%" frameborder="0" scrolling="no" class="rounded-2xl flex-1" :src="mapUrl" />
       </div>
 
@@ -414,7 +484,7 @@ onUnmounted(() => {
         <!-- Events Panel -->
         <div class="border-2 border-border rounded-3xl bg-card p-8 flex-1 min-h-[400px]">
           <div class="flex items-center justify-between mb-6">
-            <h2 class="text-lg font-medium text-green-500">Events</h2>
+            <h2 class="text-lg font-medium text-neutral-100">Events Feed</h2>
             <span v-if="events.length" class="text-xs text-neutral-400">
               Showing {{ events.length }} recent events
             </span>
@@ -476,28 +546,46 @@ onUnmounted(() => {
               </thead>
 
               <tbody>
-                <tr v-for="event in events" :key="event.id"
-                  class="border-t border-neutral-800 hover:bg-neutral-900/60 transition-colors">
-                  <td class="px-4 py-3 font-medium text-neutral-100">
-                    {{ event.name }}
-                  </td>
+  <tr
+    v-for="event in events"
+    :key="event.id"
+    class="border-t border-neutral-800 hover:bg-neutral-900/60 transition-colors"
+  >
+    <td class="px-4 py-3 font-medium text-neutral-100">
+      {{ event.name }}
+    </td>
 
-                  <td class="px-4 py-3">
-                    <span
-                      class="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-300">
-                      {{ event.type }}
-                    </span>
-                  </td>
+    <td class="px-4 py-3">
+      <span
+        :class="[
+          'inline-flex items-center rounded-full px-2.5 py-0.5 text-[13px] font-medium transition-colors',
+          isAlertEvent(event)
+            ? 'border border-red-500/70 text-red-100'
+            : 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+        ]"
+        :style="isAlertEvent(event)
+  ? {
+      backgroundColor: currentAlertColor,
+      transition: 'background-color 90ms linear'
+    }
+  : {}
+"
 
-                  <td class="px-4 py-3 text-neutral-200">
-                    {{ event.description }}
-                  </td>
+      >
+        {{ event.type }}
+      </span>
+    </td>
 
-                  <td class="px-4 py-3 text-neutral-400 text-xs whitespace-nowrap">
-                    {{ new Date(event.created_at).toLocaleString() }}
-                  </td>
-                </tr>
-              </tbody>
+    <td class="px-4 py-3 text-neutral-200">
+      {{ event.description }}
+    </td>
+
+    <td class="px-4 py-3 text-neutral-400 text-xs whitespace-nowrap">
+      {{ new Date(event.created_at).toLocaleString() }}
+    </td>
+  </tr>
+</tbody>
+
             </table>
           </div>
         </div>
@@ -527,3 +615,4 @@ onUnmounted(() => {
 
 
 <style scoped></style>
+
