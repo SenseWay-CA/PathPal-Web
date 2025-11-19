@@ -10,15 +10,26 @@ const url = "https://api.senseway.ca";
 const isDark = useDark()
 
 import { BatteryCharging } from 'lucide-vue-next';
-import L from "leaflet"
 import { Card, CardContent } from "@/components/ui/card"
 
 
 
 const id = ref("c1987b12-3ffe-432a-ac13-4b06264409ed")
-const mapUrl = ref("https://maps.google.com/maps?width=100%25&height=600&hl=en&q=$45.419592302696536,-75.67853992158024+(SenseWay)&t=&z=15&ie=UTF8&iwloc=B&output=embed")
+
+const map = ref(null);
+const marker = ref(null);
+const myIcon = L.icon({
+  iconUrl: 'my-icon.png',
+  iconSize: [38, 95],
+  iconAnchor: [22, 94],
+  popupAnchor: [-3, -76],
+  shadowUrl: 'my-icon-shadow.png',
+  shadowSize: [68, 95],
+  shadowAnchor: [22, 94]
+});
 
 const events = ref([])
+
 const status = ref({
   id: 0,
   user_id: "",
@@ -41,6 +52,56 @@ const userInfo = ref({
   created_at: "",
   password: ""
 })
+
+const nearestPlace = ref({
+  name: "",
+  city: "",
+  country: "",
+  postcode: ""
+})
+
+const nearestPlaceLabel = computed(() => {
+  const { name, city, country, postcode } = nearestPlace.value
+  if (!name && !city && !country && !postcode) return ""
+
+  // Build "Name, City, Country, POSTAL"
+  return [name, city, country, postcode].filter(Boolean).join(", ")
+})
+
+async function fetchNearestPlace(lat, lon) {
+  if (lat == null || lon == null) return
+
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
+    )
+
+    if (!resp.ok) return
+
+    const data = await resp.json()
+    const address = data.address || {}
+
+    nearestPlace.value = {
+      name:
+        data.name ||
+        address.building ||
+        address.amenity ||
+        address.shop ||
+        "",
+      city:
+        address.city ||
+        address.town ||
+        address.village ||
+        address.suburb ||
+        "",
+      country: address.country || "",
+      postcode: address.postcode || ""
+    }
+  } catch (e) {
+    console.error("Failed to fetch nearest place:", e)
+  }
+}
+
 
 const userAge = computed(() => {
   if (!userInfo.value.birth_date) return null
@@ -68,19 +129,19 @@ const isAlertEvent = (event) => {
   const name = (event.name || "").toString().toLowerCase()
 
   return type.includes("fall") || type.includes("sos") ||
-         name.includes("fall") || name.includes("sos")
+    name.includes("fall") || name.includes("sos")
 }
 
 
 // avatar sizing with help of java
-const avatarOffsetX = ref(-19) 
-const avatarOffsetY = ref(1.0)  
-const avatarScale   = ref(1.07) 
+const avatarOffsetX = ref(-19)
+const avatarOffsetY = ref(1.0)
+const avatarScale = ref(1.07)
 
 
 const batteryImage = computed(() => {
   const p = batteryPercentage.value
-// Lol next level coding - Battery Image Vals (Sail)
+  // Lol next level coding - Battery Image Vals (Sail)
   if (p >= 90) return "https://i.gyazo.com/d8f07b4c5caf5893defeee42c04484f6.png"
   if (p >= 80) return "https://i.gyazo.com/640c65fca45a2c0eb65e9eafec43f636.png"
   if (p >= 70) return "https://i.gyazo.com/1879fc61702ee3e90d1e10d620ccb366.png"
@@ -95,9 +156,9 @@ const batteryImage = computed(() => {
 
 const batteryTextColor = computed(() => {
   const p = batteryPercentage.value
-  
+
   // text colors lol
-  if (p > 50) return "rgba(54, 167, 81, 1)"
+  if (p > 51) return "rgba(54, 167, 81, 1)"
   if (p >= 10) return "rgba(249, 186, 4, 1)"
   return "rgba(229, 62, 55, 1)"
 })
@@ -110,22 +171,22 @@ const heartImages = [
 // colors lol - edit only
 const heartColors = [
   "rgb(255,150,144)", "rgb(255,142,136)", "rgb(255,134,128)", "rgb(255,127,120)",
-  "rgb(255,119,112)", "rgb(255,111,104)", "rgb(255,103,95)",  "rgb(255,96,87)",
-  "rgb(255,88,79)",  "rgb(255,80,71)",  "rgb(255,72,63)",  "rgb(255,65,55)",
-  "rgb(255,57,46)",  "rgb(255,49,38)",  "rgb(255,41,30)",  "rgb(255,34,22)",
-  "rgb(255,26,14)",  "rgb(255,18,6)",   "rgb(252,12,0)",   "rgb(244,12,0)",
-  "rgb(236,11,0)",   "rgb(228,11,0)",   "rgb(220,11,0)",   "rgb(212,10,0)",
-  "rgb(204,10,0)",   "rgb(195,9,0)",    "rgb(187,9,0)",    "rgb(179,9,0)"
+  "rgb(255,119,112)", "rgb(255,111,104)", "rgb(255,103,95)", "rgb(255,96,87)",
+  "rgb(255,88,79)", "rgb(255,80,71)", "rgb(255,72,63)", "rgb(255,65,55)",
+  "rgb(255,57,46)", "rgb(255,49,38)", "rgb(255,41,30)", "rgb(255,34,22)",
+  "rgb(255,26,14)", "rgb(255,18,6)", "rgb(252,12,0)", "rgb(244,12,0)",
+  "rgb(236,11,0)", "rgb(228,11,0)", "rgb(220,11,0)", "rgb(212,10,0)",
+  "rgb(204,10,0)", "rgb(195,9,0)", "rgb(187,9,0)", "rgb(179,9,0)"
 ]
 const heartColorsGreen = [
   "rgb(178,213,178)", "rgb(147,196,147)", "rgb(173,210,173)", "rgb(141,193,141)",
   "rgb(168,208,168)", "rgb(136,190,136)", "rgb(162,205,162)", "rgb(131,188,131)",
   "rgb(157,202,157)", "rgb(125,185,125)", "rgb(152,199,152)", "rgb(120,182,120)",
-  "rgb(115,179,115)", "rgb(86,159,86)",   "rgb(110,176,110)", "rgb(83,153,83)",
-  "rgb(104,173,104)", "rgb(80,148,80)",   "rgb(99,170,99)",   "rgb(78,143,78)",
-  "rgb(94,167,94)",   "rgb(75,138,75)",   "rgb(89,164,89)",   "rgb(72,132,72)",
-  "rgb(69,127,69)",   "rgb(66,122,66)",   "rgb(63,116,63)",   "rgb(60,111,60)",
-  "rgb(57,106,57)",   "rgb(55,100,55)"
+  "rgb(115,179,115)", "rgb(86,159,86)", "rgb(110,176,110)", "rgb(83,153,83)",
+  "rgb(104,173,104)", "rgb(80,148,80)", "rgb(99,170,99)", "rgb(78,143,78)",
+  "rgb(94,167,94)", "rgb(75,138,75)", "rgb(89,164,89)", "rgb(72,132,72)",
+  "rgb(69,127,69)", "rgb(66,122,66)", "rgb(63,116,63)", "rgb(60,111,60)",
+  "rgb(57,106,57)", "rgb(55,100,55)"
 ];
 
 
@@ -218,7 +279,7 @@ async function getUserInfo(newID) {
     }
 
     userInfo.value = await response.json();
-    mapUrl.value = `https://maps.google.com/maps?width=100%25&height=600&hl=en&q=${status.value.latitude},${status.value.longitude}+(SenseWay)&t=&z=15&ie=UTF8&iwloc=B&output=embed`
+
 
 
     console.log(userInfo.value);
@@ -238,6 +299,12 @@ async function getEvents(currentId) {
       throw new Error(`Response status: ${response.status}`);
     }
     events.value = await response.json();
+
+    events.value.forEach(element => {
+      if (element.type == "Low_Battery") {
+        element.type = "Battery"
+      }
+    });
     console.log('Fetched Events:', events.value);
   } catch (error) {
     console.error('Failed to fetch events:', error.message);
@@ -246,17 +313,46 @@ async function getEvents(currentId) {
 
 async function getStatus(currentId) {
   if (!currentId) return;
+
   try {
     const response = await fetch(`${url}/status?user_id=${currentId}`);
     if (!response.ok) {
       throw new Error(`Response status: ${response.status}`);
     }
+
     status.value = await response.json();
+    const lat = status.value.latitude;
+    const lon = status.value.longitude;
+
+    if (map.value) {
+      map.value.setView([lat, lon]);
+      if (marker.value) {
+        marker.value.setLatLng([lat, lon]);
+      } else {
+        marker.value = L.marker([lat, lon], { icon: myIcon }).addTo(map.value);
+      }
+    } else {
+      map.value = L.map('map').setView([lat, lon], 17);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution:
+          `<span style="opacity:0.001;">© OpenStreetMap contributors</span>
+     <span style="color:#00aaff; font-weight:600;">
+        SenseWay LiveLogic • © 2025 • 🇨🇦 Canada
+     </span>`
+      }).addTo(map.value);
+
+      marker.value = L.marker([lat, lon], { icon: myIcon }).addTo(map.value);
+    }
+
+
+    fetchNearestPlace(lat, lon);
+
     console.log('Fetched Status:', status.value);
   } catch (error) {
     console.error('Failed to fetch status:', error.message);
   }
 }
+
 
 let dataInterval = null;
 
@@ -268,13 +364,15 @@ watch(id, (newID) => {
 
 
     if (dataInterval) clearInterval(dataInterval);
-    dataInterval = setInterval(() => { getEvents(newID); getStatus(newID); }, 5000);
+    dataInterval = setInterval(() => { getEvents(newID); getStatus(newID); }, 3000);
   }
 }, { immediate: true });
 
 onUnmounted(() => {
   if (dataInterval) clearInterval(dataInterval);
 });
+
+
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //
@@ -325,74 +423,56 @@ onUnmounted(() => {
         </span>
       </div>
 
-      <div
-  id="h-right"
-  class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-4 py-2
-         flex items-center justify-between gap-6 shadow-sm bg-neutral-900/60"
->
+      <div id="h-right" class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-4 py-2
+         flex items-center justify-between gap-6 shadow-sm bg-neutral-900/60">
 
-  <!-- Left: Age + Premium -->
-  <div class="flex items-center gap-6 text-xs">
-    <div class="flex flex-col leading-tight">
-      <span class="text-[11px] text-neutral-400">Age</span>
-      <span class="text-sm font-semibold text-neutral-100">
-        {{ userAge ?? '—' }}
-      </span>
-    </div>
+        <!-- Left: Age + Premium -->
+        <div class="flex items-center gap-6 text-xs">
+          <div class="flex flex-col leading-tight">
+            <span class="text-[11px] text-neutral-400">Age</span>
+            <span class="text-sm font-semibold text-neutral-100">
+              {{ userAge ?? '—' }}
+            </span>
+          </div>
 
-    <div class="h-7 w-px bg-neutral-800"></div>
+          <div class="h-7 w-px bg-neutral-800"></div>
 
-    <div class="flex items-center gap-2">
-      <img
-        src="https://i.gyazo.com/d40ab0225c23f165f4ac8422315ebbb6.png"
-        alt="Premium"
-        class="h-5 w-auto"
-      />
-      <div class="flex flex-col leading-tight">
-        <span class="text-[11px] text-neutral-400">Status</span>
-        <span class="text-xs font-semibold text-amber-300">
-          Premium Member
-        </span>
+          <div class="flex items-center gap-2">
+            <img src="https://i.gyazo.com/d40ab0225c23f165f4ac8422315ebbb6.png" alt="Premium" class="h-5 w-auto" />
+            <div class="flex flex-col leading-tight">
+              <span class="text-[11px] text-neutral-400">Status</span>
+              <span class="text-xs font-semibold text-amber-300">
+                Premium Member
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Avatar + Two-line welcome (movable & scalable) -->
+        <div class="flex items-center gap-3" :style="{
+          transform: `translate(${avatarOffsetX}px, ${avatarOffsetY}px) scale(${avatarScale})`,
+          transformOrigin: 'center right'
+        }">
+          <div class="h-8 w-8 rounded-full border border-neutral-600 flex items-center justify-center
+           bg-neutral-800/80">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-neutral-200" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="1.8">
+              <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" />
+              <path d="M4 20a8 8 0 0 1 16 0" />
+            </svg>
+          </div>
+
+          <div class="flex flex-col leading-tight">
+            <span class="text-[10px] text-neutral-400">
+              Welcome Back,
+            </span>
+
+            <span class="text-sm font-semibold text-neutral-100">
+              {{ userInfo.name || 'John Doe' }}
+            </span>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Right: Avatar + Two-line welcome (movable & scalable) -->
-<div
-  class="flex items-center gap-3"
-  :style="{
-    transform: `translate(${avatarOffsetX}px, ${avatarOffsetY}px) scale(${avatarScale})`,
-    transformOrigin: 'center right'
-  }"
->
-  <div
-    class="h-8 w-8 rounded-full border border-neutral-600 flex items-center justify-center
-           bg-neutral-800/80"
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="h-4 w-4 text-neutral-200"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-    >
-      <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" />
-      <path d="M4 20a8 8 0 0 1 16 0" />
-    </svg>
-  </div>
-
-  <div class="flex flex-col leading-tight">
-    <span class="text-[10px] text-neutral-400">
-      Welcome Back,
-    </span>
-
-    <span class="text-sm font-semibold text-neutral-100">
-      {{ userInfo.name || 'John Doe' }}
-    </span>
-  </div>
-</div>
-</div>
 
 
     </div>
@@ -406,79 +486,68 @@ onUnmounted(() => {
 
     <!-- Content Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto w-full">
-      <!-- Left Panel - Google Maps -->
+      <!-- Left Panel - Leaflet Maps -->
       <div class="border-2 border-border rounded-3xl bg-card p-8 min-h-[500px] flex flex-col">
-        <h2 class="text-lg font-medium text-neutral-100 mb-4">Live Cane Location</h2>
-        <iframe width="100%" height="100%" frameborder="0" scrolling="no" class="rounded-2xl flex-1" :src="mapUrl" />
+        <h2 class="text-lg font-medium text-neutral-100 mb-1">Live Cane Location</h2>
+
+        <!-- Nearest Place Display -->
+        <p v-if="nearestPlaceLabel" class="text-xs text-neutral-400 mb-3">
+          Nearest: {{ nearestPlaceLabel }}
+        </p>
+
+        <!-- Map -->
+        <div id="map" class="rounded-2xl w-full h-[420px] overflow-hidden"></div>
       </div>
+
 
       <!-- Right Side -->
       <div class=" flex flex-col gap-4">
         <!-- Top 4 Cards -->
         <div class="grid grid-cols-4 gap-4">
 
-  <div
-    class="col-span-2 border-2 border-border rounded-3xl bg-card
-           aspect-square relative overflow-hidden flex items-center justify-center"
-  >
-    <img
-      :src="batteryImage"
-      alt="Battery"
-      class="absolute inset-0 w-full h-full object-contain opacity-95 pointer-events-none"
-    />
+          <div class="col-span-2 border-2 border-border rounded-3xl bg-card
+           aspect-square relative overflow-hidden flex items-center justify-center">
+            <img :src="batteryImage" alt="Battery"
+              class="absolute inset-0 w-full h-full object-contain opacity-95 pointer-events-none" />
 
-    <div
-  class="absolute z-10 font-semibold
-         drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-  :style="{
-    top: '7%',
-    left: '49.2%',
-    transform: 'translateX(-50%)',
-    fontSize: '55px',
-    color: batteryTextColor   
-  }"
->
-  {{ batteryPercentage }}%
-</div>
-</div>
+            <div class="absolute z-10 font-semibold
+         drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]" :style="{
+          top: '7%',
+          left: '49.2%',
+          transform: 'translateX(-50%)',
+          fontSize: '55px',
+          color: batteryTextColor
+        }">
+              {{ batteryPercentage }}%
+            </div>
+          </div>
 
-  <!-- Heart rate card -->
-  <div
-  class="col-span-2 border-2 border-border rounded-3xl bg-card
-         aspect-square relative overflow-hidden flex items-center justify-center"
->
-  <div
-    class="absolute rounded-full blur-3xl opacity-75"
-    :style="{
-      width: '80%',
-      height: '80%',
-      backgroundColor: currentHeartColor
-    }"
-  ></div>
+          <!-- Heart rate card -->
+          <div class="col-span-2 border-2 border-border rounded-3xl bg-card
+         aspect-square relative overflow-hidden flex items-center justify-center">
+            <div class="absolute rounded-full blur-3xl opacity-75" :style="{
+              width: '80%',
+              height: '80%',
+              backgroundColor: currentHeartColor
+            }"></div>
 
-  <img
-    :src="currentHeartImage"
-    alt="Heart"
-    class="relative z-10 w-[70%] h-[70%] object-contain pointer-events-none"
-  />
+            <img :src="currentHeartImage" alt="Heart"
+              class="relative z-10 w-[70%] h-[70%] object-contain pointer-events-none" />
 
-  <div
-    class="absolute z-20 font-semibold text-center
-           drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]"
-    :style="{
-      top: '27%',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      fontSize: '40px',
-      color: currentHeartTextColor
-    }"
-  >
-    {{ status.heart_rate || 'N/A' }}<span v-if="status.heart_rate"> bpm</span>
-  </div>
-</div>
+            <div class="absolute z-20 font-semibold text-center
+           drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]" :style="{
+            top: '27%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontSize: '40px',
+            color: currentHeartTextColor
+          }">
+              {{ status.heart_rate || 'N/A' }}<span v-if="status.heart_rate"> bpm</span>
+            </div>
+          </div>
 
 
-</div>
+        </div>
 
 
         <!-- Events Panel -->
@@ -546,45 +615,38 @@ onUnmounted(() => {
               </thead>
 
               <tbody>
-  <tr
-    v-for="event in events"
-    :key="event.id"
-    class="border-t border-neutral-800 hover:bg-neutral-900/60 transition-colors"
-  >
-    <td class="px-4 py-3 font-medium text-neutral-100">
-      {{ event.name }}
-    </td>
+                <tr v-for="event in events" :key="event.id"
+                  class="border-t border-neutral-800 hover:bg-neutral-900/60 transition-colors">
+                  <td class="px-4 py-3 font-medium text-neutral-100">
+                    {{ event.name }}
+                  </td>
 
-    <td class="px-4 py-3">
-      <span
-        :class="[
-          'inline-flex items-center rounded-full px-2.5 py-0.5 text-[13px] font-medium transition-colors',
-          isAlertEvent(event)
-            ? 'border border-red-500/70 text-red-100'
-            : 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-        ]"
-        :style="isAlertEvent(event)
-  ? {
-      backgroundColor: currentAlertColor,
-      transition: 'background-color 90ms linear'
-    }
-  : {}
-"
+                  <td class="px-4 py-3">
+                    <span :class="[
+                      'inline-flex items-center rounded-full px-2.5 py-0.5 text-[13px] font-medium transition-colors',
+                      isAlertEvent(event)
+                        ? 'border border-red-500/70 text-red-100'
+                        : 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                    ]" :style="isAlertEvent(event)
+                      ? {
+                        backgroundColor: currentAlertColor,
+                        transition: 'background-color 90ms linear'
+                      }
+                      : {}
+                      ">
+                      {{ event.type }}
+                    </span>
+                  </td>
 
-      >
-        {{ event.type }}
-      </span>
-    </td>
+                  <td class="px-4 py-3 text-neutral-200">
+                    {{ event.description }}
+                  </td>
 
-    <td class="px-4 py-3 text-neutral-200">
-      {{ event.description }}
-    </td>
-
-    <td class="px-4 py-3 text-neutral-400 text-xs whitespace-nowrap">
-      {{ new Date(event.created_at).toLocaleString() }}
-    </td>
-  </tr>
-</tbody>
+                  <td class="px-4 py-3 text-neutral-400 text-xs whitespace-nowrap">
+                    {{ new Date(event.created_at).toLocaleString() }}
+                  </td>
+                </tr>
+              </tbody>
 
             </table>
           </div>
@@ -592,11 +654,11 @@ onUnmounted(() => {
 
       </div>
     </div>
-  <main class="p-4 flex flex-col gap-4 w-full">
-    <!-- Blue Header Bar -->
-    <div class="h-2 bg-blue-600 rounded-full mb-2" />
-    
-</main>
+    <main class="p-4 flex flex-col gap-4 w-full">
+      <!-- Blue Header Bar -->
+      <div class="h-2 bg-blue-600 rounded-full mb-2" />
+
+    </main>
   </main>
 
   <footer class="fixed -bottom-4 left-1/2 -translate-x-1/2
@@ -614,5 +676,14 @@ onUnmounted(() => {
 </template>
 
 
-<style scoped></style>
+<style scoped>
+#map {
+  height: 100%;
+}
+</style>
 
+<style>
+.leaflet-control-attribution {
+  display: none !important;
+}
+</style>
