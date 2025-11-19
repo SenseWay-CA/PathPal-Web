@@ -335,9 +335,9 @@ async function getStatus(currentId) {
       map.value = L.map('map').setView([lat, lon], 17);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution:
-          `<span style="opacity:0.001;">© OpenStreetMap contributors</span>
-     <span style="color:#00aaff; font-weight:600;">
-        SenseWay LiveLogic • © 2025 • 🇨🇦 Canada
+          `
+     <span style="color:#0078a8;">
+        SenseWay © 2025  
      </span>`
       }).addTo(map.value);
 
@@ -679,11 +679,5 @@ onUnmounted(() => {
 <style scoped>
 #map {
   height: 100%;
-}
-</style>
-
-<style>
-.leaflet-control-attribution {
-  display: none !important;
 }
 </style>
