@@ -1,6 +1,8 @@
 <script setup>
 import { useDark } from '@vueuse/core'
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+
 
 
 const url = "https://api.senseway.ca";
@@ -39,6 +41,109 @@ const userInfo = ref({
   created_at: "",
   password: ""
 })
+
+const userAge = computed(() => {
+  if (!userInfo.value.birth_date) return null
+  const dob = new Date(userInfo.value.birth_date)
+  if (Number.isNaN(dob.getTime())) return null
+
+  const today = new Date()
+  let age = today.getFullYear() - dob.getFullYear()
+  const m = today.getMonth() - dob.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--
+  return age
+})
+
+const batteryPercentage = computed(() => {
+  const value = Number(status.value.battery)
+  if (Number.isNaN(value) || value < 0) return 0
+  if (value > 100) return 100
+  return value
+})
+
+const avatarOffsetX = ref(-19)   // move left/right  (px)
+const avatarOffsetY = ref(1.0)   // move up/down    (px)
+const avatarScale   = ref(1.07) // resize avatar + text
+
+
+const batteryImage = computed(() => {
+  const p = batteryPercentage.value
+// Lol next level coding - Battery Image Vals (Sail)
+  if (p >= 90) return "https://i.gyazo.com/d8f07b4c5caf5893defeee42c04484f6.png"
+  if (p >= 80) return "https://i.gyazo.com/640c65fca45a2c0eb65e9eafec43f636.png"
+  if (p >= 70) return "https://i.gyazo.com/1879fc61702ee3e90d1e10d620ccb366.png"
+  if (p >= 60) return "https://i.gyazo.com/911be89cf04aaa67fe96815c8c66e8e2.png"
+  if (p >= 50) return "https://i.gyazo.com/ff743192cab5d12bf688fc99a665c5ec.png"
+  if (p >= 40) return "https://i.gyazo.com/f21adce8288ccb2c90e2aeba63e4fbea.png"
+  if (p >= 30) return "https://i.gyazo.com/3477adab0848a4bc3bb8376963160303.png"
+  if (p >= 20) return "https://i.gyazo.com/3ed3d7e883949741fe58b6c4e59e4a5c.png"
+  if (p >= 10) return "https://i.gyazo.com/cb03b04add5f0b325df799f8b3e76cbf.png"
+  return "https://i.gyazo.com/fbab5c2c7805c1756e5d1afd1cdbdd59.png"
+})
+
+const batteryTextColor = computed(() => {
+  const p = batteryPercentage.value
+  
+  // text colors lol
+  if (p > 50) return "rgba(54, 167, 81, 1)"
+  if (p >= 10) return "rgba(249, 186, 4, 1)"
+  return "rgba(229, 62, 55, 1)"
+})
+
+const heartImages = [
+  "https://i.gyazo.com/7c390eaaf22543c97e2fec0524e27afa.png",
+  "https://i.gyazo.com/ce05866c1ded35069062c8fe4bec1a0a.png",
+]
+
+const heartColors = [
+  "rgb(255,243,242)", "rgb(255,235,234)", "rgb(254,227,226)", "rgb(254,220,218)",
+  "rgb(254,212,210)", "rgb(254,204,201)", "rgb(254,196,193)", "rgb(254,189,185)",
+  "rgb(254,181,177)", "rgb(255,173,169)", "rgb(255,165,161)", "rgb(255,158,153)",
+  "rgb(255,150,144)", "rgb(255,142,136)", "rgb(255,134,128)", "rgb(255,127,120)",
+  "rgb(255,119,112)", "rgb(255,111,104)", "rgb(255,103,95)",  "rgb(255,96,87)",
+  "rgb(255,88,79)",  "rgb(255,80,71)",  "rgb(255,72,63)",  "rgb(255,65,55)",
+  "rgb(255,57,46)",  "rgb(255,49,38)",  "rgb(255,41,30)",  "rgb(255,34,22)",
+  "rgb(255,26,14)",  "rgb(255,18,6)",   "rgb(252,12,0)",   "rgb(244,12,0)",
+  "rgb(236,11,0)",   "rgb(228,11,0)",   "rgb(220,11,0)",   "rgb(212,10,0)",
+  "rgb(204,10,0)",   "rgb(195,9,0)",    "rgb(187,9,0)",    "rgb(179,9,0)"
+]
+
+const currentHeartTextColorIndex = ref(0)
+
+const currentHeartTextColor = computed(() =>
+  heartColors[currentHeartTextColorIndex.value]
+)
+const currentHeartImageIndex = ref(0)
+const currentHeartColorIndex = ref(0)
+const currentHeartImage = computed(() => heartImages[currentHeartImageIndex.value])
+const currentHeartColor = computed(() => heartColors[currentHeartColorIndex.value])
+let heartImageInterval = null
+let heartColorInterval = null
+
+onMounted(() => {
+  heartImageInterval = setInterval(() => {
+    currentHeartImageIndex.value =
+      (currentHeartImageIndex.value + 1) % heartImages.length
+  }, 300)
+
+  heartColorInterval = setInterval(() => {
+    currentHeartColorIndex.value =
+      (currentHeartColorIndex.value + 1) % heartColors.length
+
+    currentHeartTextColorIndex.value =
+      (currentHeartTextColorIndex.value - 1 + heartColors.length) %
+      heartColors.length
+  }, 50)
+})
+
+
+onUnmounted(() => {
+  clearInterval(heartImageInterval)
+  clearInterval(heartColorInterval)
+})
+
+
+
 
 
 async function getUserInfo(newID) {
@@ -150,27 +255,76 @@ onUnmounted(() => {
         </span>
       </div>
 
-      <div id="h-right" class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-5 py-3.5
-               flex items-center justify-end gap-3 shadow-sm bg-neutral-900/60
-               min-h-[3.5rem] md:min-h-[4rem]">
-        <div class="h-9 w-9 rounded-full border border-neutral-600 flex items-center justify-center
-                 bg-neutral-800/80">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-neutral-200" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="1.8">
-            <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" />
-            <path d="M4 20a8 8 0 0 1 16 0" />
-          </svg>
-        </div>
+      <div
+  id="h-right"
+  class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-4 py-2
+         flex items-center justify-between gap-6 shadow-sm bg-neutral-900/60"
+>
 
-        <span class="text-lg leading-none">🇨🇦</span>
+  <!-- Left: Age + Premium -->
+  <div class="flex items-center gap-6 text-xs">
+    <div class="flex flex-col leading-tight">
+      <span class="text-[11px] text-neutral-400">Age</span>
+      <span class="text-sm font-semibold text-neutral-100">
+        {{ userAge ?? '—' }}
+      </span>
+    </div>
 
-        <div class="flex flex-col items-end leading-tight">
-          <span class="text-xs text-neutral-400">Welcome back,</span>
-          <span class="text-base font-semibold text-neutral-100">
-            {{ userInfo.name }}
-          </span>
-        </div>
+    <div class="h-7 w-px bg-neutral-800"></div>
+
+    <div class="flex items-center gap-2">
+      <img
+        src="https://i.gyazo.com/d40ab0225c23f165f4ac8422315ebbb6.png"
+        alt="Premium"
+        class="h-5 w-auto"
+      />
+      <div class="flex flex-col leading-tight">
+        <span class="text-[11px] text-neutral-400">Status</span>
+        <span class="text-xs font-semibold text-amber-300">
+          Premium Member
+        </span>
       </div>
+    </div>
+  </div>
+
+  <!-- Right: Avatar + Two-line welcome (movable & scalable) -->
+<div
+  class="flex items-center gap-3"
+  :style="{
+    transform: `translate(${avatarOffsetX}px, ${avatarOffsetY}px) scale(${avatarScale})`,
+    transformOrigin: 'center right'
+  }"
+>
+  <div
+    class="h-8 w-8 rounded-full border border-neutral-600 flex items-center justify-center
+           bg-neutral-800/80"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="h-4 w-4 text-neutral-200"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+    >
+      <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" />
+      <path d="M4 20a8 8 0 0 1 16 0" />
+    </svg>
+  </div>
+
+  <div class="flex flex-col leading-tight">
+    <span class="text-[10px] text-neutral-400">
+      Welcome Back,
+    </span>
+
+    <span class="text-sm font-semibold text-neutral-100">
+      {{ userInfo.name || 'John Doe' }}
+    </span>
+  </div>
+</div>
+</div>
+
+
     </div>
   </header>
 
@@ -192,16 +346,70 @@ onUnmounted(() => {
       <div class=" flex flex-col gap-4">
         <!-- Top 4 Cards -->
         <div class="grid grid-cols-4 gap-4">
-          <div
-            class=" col-span-2 border-2 border-border rounded-3xl bg-card p-6 aspect-square flex items-center justify-center">
-            <span class="font-medium text-center text-card-foreground">Battery: {{ status.battery }}%</span>
-          </div>
-          <div
-            class=" col-span-2 border-2 border-border rounded-3xl bg-card p-6 aspect-square flex items-center justify-center">
-            <span class="font-medium text-center text-card-foreground">Heart Rate: {{ status.heart_rate || 'N/A'
-              }}</span>
-          </div>
-        </div>
+
+  <div
+    class="col-span-2 border-2 border-border rounded-3xl bg-card
+           aspect-square relative overflow-hidden flex items-center justify-center"
+  >
+    <img
+      :src="batteryImage"
+      alt="Battery"
+      class="absolute inset-0 w-full h-full object-contain opacity-95 pointer-events-none"
+    />
+
+    <div
+  class="absolute z-10 font-semibold
+         drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
+  :style="{
+    top: '7%',
+    left: '49.2%',
+    transform: 'translateX(-50%)',
+    fontSize: '55px',
+    color: batteryTextColor   
+  }"
+>
+  {{ batteryPercentage }}%
+</div>
+</div>
+
+  <!-- Heart rate card -->
+  <div
+  class="col-span-2 border-2 border-border rounded-3xl bg-card
+         aspect-square relative overflow-hidden flex items-center justify-center"
+>
+  <div
+    class="absolute rounded-full blur-3xl opacity-75"
+    :style="{
+      width: '80%',
+      height: '80%',
+      backgroundColor: currentHeartColor
+    }"
+  ></div>
+
+  <img
+    :src="currentHeartImage"
+    alt="Heart"
+    class="relative z-10 w-[70%] h-[70%] object-contain pointer-events-none"
+  />
+
+  <div
+    class="absolute z-20 font-semibold text-center
+           drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]"
+    :style="{
+      top: '27%',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      fontSize: '40px',
+      color: currentHeartTextColor
+    }"
+  >
+    {{ status.heart_rate || 'N/A' }}<span v-if="status.heart_rate"> bpm</span>
+  </div>
+</div>
+
+
+</div>
+
 
         <!-- Events Panel -->
         <div class="border-2 border-border rounded-3xl bg-card p-8 flex-1 min-h-[400px]">
@@ -296,19 +504,24 @@ onUnmounted(() => {
 
       </div>
     </div>
+  <main class="p-4 flex flex-col gap-4 w-full">
+    <!-- Blue Header Bar -->
+    <div class="h-2 bg-blue-600 rounded-full mb-2" />
+    
+</main>
   </main>
 
   <footer class="fixed -bottom-4 left-1/2 -translate-x-1/2
-               w-[90%] max-w-2xl
+               w-[80%] max-w-7xl
                text-center text-sm
                border border-neutral-700/60
                rounded-2xl
-               px-5 py-3.5
+               px-4 py-3.5
                bg-neutral-900/60
                backdrop-blur
-               text-neutral-400
+               text-neutral-300
                shadow-sm">
-    <p>All rights reserved © 2025</p>
+    <p>SenseWay © 2025 All Rights Reserved | Non Profit Organization</p>
   </footer>
 </template>
 
