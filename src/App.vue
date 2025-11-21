@@ -19,11 +19,11 @@ const id = ref("c1987b12-3ffe-432a-ac13-4b06264409ed")
 const map = ref(null);
 const marker = ref(null);
 const myIcon = L.icon({
-  iconUrl: 'my-icon.png',
-  iconSize: [38, 95],
-  iconAnchor: [22, 94],
+  iconUrl: 'https://i.gyazo.com/2c2f86cbde1c24b59b380f1da714df48.png',
+  iconSize: [38, 38],
+  iconAnchor: [12, 15],
   popupAnchor: [-3, -76],
-  shadowUrl: 'my-icon-shadow.png',
+  shadowUrl: null,
   shadowSize: [68, 95],
   shadowAnchor: [22, 94]
 });
@@ -337,7 +337,7 @@ async function getStatus(currentId) {
         attribution:
           `
      <span style="color:#0078a8;">
-        SenseWay © 2025  
+        SenseWay © 2025
      </span>`
       }).addTo(map.value);
 
