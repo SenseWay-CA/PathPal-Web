@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { onMounted, onUnmounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { useRouter } from 'vue-router'
 
 const containerRef = ref(null)
 let camera
@@ -10,6 +10,28 @@ let scene
 let renderer
 let controls
 let elderlyMan
+
+const router = useRouter()
+const goToAuth = () => {
+  const candidates = ['/auth-view', '/auth', '/login', '/signin']
+  for (const path of candidates) {
+    const resolved = router.resolve({ path })
+    if (resolved.matched && resolved.matched.length) {
+      router.push(path)
+      return
+    }
+  }
+  // try by common route name
+  const names = ['auth', 'Auth', 'auth-view', 'AuthView', 'login']
+  for (const name of names) {
+    const resolved = router.resolve({ name })
+    if (resolved.matched && resolved.matched.length) {
+      router.push({ name })
+      return
+    }
+  }
+  console.warn('No auth route found. Check your router configuration.')
+}
 
 const initThree = () => {
   if (!containerRef.value) return
@@ -336,22 +358,15 @@ onMounted(() => {
     <div class="absolute inset-0 z-20 flex flex-col pointer-events-none">
       <div class="w-full flex justify-between items-center p-6 pointer-events-auto">
         <div class="text-white text-3xl font-bold">SenseWay</div>
-        <div class="space-x-4">
-          <RouterLink to="/auth">
-            <button
-              class="px-6 py-2 bg-white text-black rounded-full font-semibold hover:bg-gray-200 transition-colors"
-            >
+            <div class="space-x-4">
+            <button @click="goToAuth" class="px-6 py-2 bg-white text-black rounded-full font-semibold hover:bg-gray-200">
               Login
             </button>
-          </RouterLink>
-          <RouterLink to="/auth">
-            <button
-              class="px-6 py-2 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition-colors"
-            >
+
+            <button @click="goToAuth" class="px-6 py-2 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700">
               Signup
             </button>
-          </RouterLink>
-        </div>
+             </div>
       </div>
       <div class="flex-grow flex items-end justify-start p-12">
         <div class="text-white text-5xl font-extrabold max-w-2xl leading-tight">

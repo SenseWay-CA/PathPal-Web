@@ -1,8 +1,11 @@
 import '@/assets/styles.css'
 import { createApp } from 'vue'
-import Root from './Root.vue' // Point this to your new shell
+import Root from './Root.vue'
 import router from './router'
+import { createPinia } from 'pinia'
 
-const app = createApp(Root) // 'Root' is now the boss, not 'App'
+const app = createApp(Root) 
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
 app.mount('#app')
