@@ -1,6 +1,6 @@
 <script setup>
 import { useDark } from '@vueuse/core'
-
+import { RouterView } from 'vue-router'
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 
 
