@@ -1,15 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
 
-const API_BASE_URL = 'https://api.senseway.ca/'
+const API_BASE_URL = 'https://api.senseway.ca'
 
 export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false)
   const user = ref(null)
-  const router = useRouter()
-
-  const fetchWithCredentials = async (url, options: RequestInit = {}) => {
+  const fetchWithCredentials = async (url, options = {}) => {
     options.credentials = 'include'
     options.headers = {
       'Content-Type': 'application/json',
