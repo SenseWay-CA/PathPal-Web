@@ -3,10 +3,14 @@ import { useDark } from '@vueuse/core'
 import { RouterView, useRouter } from 'vue-router'
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { BatteryCharging } from 'lucide-vue-next'
+import { Card, CardContent } from '@/components/ui/card'
 
 const url = 'https://api.senseway.ca'
 
-const isDark = useDark()
+const isDark = useDark()  
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -15,9 +19,6 @@ const handleLogout = async () => {
   await authStore.logout()
   router.push({ name: 'home' })
 }
-
-import { BatteryCharging } from 'lucide-vue-next'
-import { Card, CardContent } from '@/components/ui/card'
 
 const id = ref('c1987b12-3ffe-432a-ac13-4b06264409ed')
 
@@ -402,91 +403,66 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="border-b border-neutral-800 bg-neutral-900/80 backdrop-blur">
-    <div
-      class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-stretch md:items-stretch gap-4"
-    >
-      <div
-        id="h-left"
-        class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-5 py-3.5 flex items-center justify-start gap-3 shadow-sm bg-neutral-900/60 min-h-[3.5rem] md:min-h-[4rem]"
-      >
+  <!-- ======================== HEADER ======================== -->
+  <header class="header-bar">
+    <div class="header-inner">
+      <!-- Left: Brand -->
+      <div class="header-section header-brand">
         <img
           src="https://i.gyazo.com/5ebc3dc6c713fc1ae66bcc5d4704a0bd.png"
-          class="h-10 w-auto object-contain"
+          class="brand-logo"
+          alt="SenseWay logo"
         />
+        <div class="brand-divider"></div>
+        <div class="brand-text">
+          <span class="brand-name">SenseWay<sup class="brand-tm">TM</sup> DEMO</span>
+          <span class="brand-sub">Monitoring {{ userInfo.name || 'Unknown' }}'s Cane</span>
+        </div>
+      </div>
 
-        <div class="text-neutral-400 font-bold tracking-wide text-xl">|</div>
-
-        <div class="flex flex-col leading-tight">
-          <span class="text-neutral-200 font-bold tracking-wide text-lg"> SenseWay™ DEMO </span>
-          <span class="text-xs text-neutral-400">
-            Currently monitoring {{ userInfo.name }}'s Cane
+      <!-- Middle: Cane ID Input -->
+      <div class="header-section header-input-section">
+        <label class="input-label" for="cane-id">Cane User ID</label>
+        <div class="input-wrapper">
+          <input
+            v-model="id"
+            id="cane-id"
+            type="text"
+            placeholder="Enter cane user ID..."
+            class="cane-input"
+          />
+          <span class="live-badge">
+            <span class="live-dot"></span>
+            LIVE
           </span>
         </div>
       </div>
 
-      <div
-        id="h-middle"
-        class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-5 py-3.5 flex items-center gap-3 shadow-sm bg-neutral-900/60 min-h-[3.5rem] md:min-h-[4rem]"
-      >
-        <label class="text-sm text-neutral-300 whitespace-nowrap"> Cane User ID </label>
-
-        <input
-          v-model="id"
-          type="text"
-          placeholder="Enter your cane user ID..."
-          class="flex-1 bg-neutral-900/80 border border-neutral-600 rounded-xl px-3 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:border-neutral-400"
-        />
-
-        <span
-          class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-red-600 text-[0.65rem] font-semibold uppercase tracking-wide text-white"
-        >
-          LIVE
-        </span>
-      </div>
-
-      <div
-        id="h-right"
-        class="w-full md:flex-1 border border-neutral-700/60 rounded-2xl px-4 py-2 flex items-center justify-between gap-6 shadow-sm bg-neutral-900/60"
-      >
-        <!-- Left: Age + Premium -->
-        <div class="flex items-center gap-6 text-xs">
-          <div class="flex flex-col leading-tight">
-            <span class="text-[11px] text-neutral-400">Age</span>
-            <span class="text-sm font-semibold text-neutral-100">
-              {{ userAge ?? '—' }}
-            </span>
+      <!-- Right: User info + Logout -->
+      <div class="header-section header-user">
+        <div class="user-meta">
+          <div class="meta-item">
+            <span class="meta-label">Age</span>
+            <span class="meta-value">{{ userAge ?? '--' }}</span>
           </div>
-
-          <div class="h-7 w-px bg-neutral-800"></div>
-
-          <div class="flex items-center gap-2">
+          <div class="meta-divider"></div>
+          <div class="meta-item meta-premium">
             <img
               src="https://i.gyazo.com/d40ab0225c23f165f4ac8422315ebbb6.png"
               alt="Premium"
-              class="h-5 w-auto"
+              class="premium-icon"
             />
-            <div class="flex flex-col leading-tight">
-              <span class="text-[11px] text-neutral-400">Status</span>
-              <span class="text-xs font-semibold text-amber-300"> Premium Member </span>
+            <div>
+              <span class="meta-label">Status</span>
+              <span class="meta-value premium-text">Premium</span>
             </div>
           </div>
         </div>
-
-        <!-- Right: Avatar + Two-line welcome (movable & scalable) -->
-        <div
-          class="flex items-center gap-3"
-          :style="{
-            transform: `translate(${avatarOffsetX}px, ${avatarOffsetY}px) scale(${avatarScale})`,
-            transformOrigin: 'center right',
-          }"
-        >
-          <div
-            class="h-8 w-8 rounded-full border border-neutral-600 flex items-center justify-center bg-neutral-800/80"
-          >
+        <div class="user-profile">
+          <div class="avatar-ring">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4 text-neutral-200"
+              class="avatar-icon"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -496,19 +472,11 @@ onUnmounted(() => {
               <path d="M4 20a8 8 0 0 1 16 0" />
             </svg>
           </div>
-
-          <div class="flex flex-col leading-tight">
-            <span class="text-[10px] text-neutral-400"> Welcome Back, </span>
-
-            <span class="text-sm font-semibold text-neutral-100">
-              {{ userInfo.name || 'John Doe' }}
-            </span>
+          <div class="user-greeting">
+            <span class="greeting-sub">Welcome back,</span>
+            <span class="greeting-name">{{ userInfo.name || 'John Doe' }}</span>
           </div>
-
-          <button
-            @click="handleLogout"
-            class="ml-4 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
-          >
+          <button @click="handleLogout" class="logout-btn">
             Logout
           </button>
         </div>
@@ -516,176 +484,142 @@ onUnmounted(() => {
     </div>
   </header>
 
-  <main class="p-4 flex flex-col gap-4 w-full">
-    <!-- Blue Header Bar -->
-    <div class="h-2 bg-blue-600 rounded-full mb-2" />
+  <!-- ======================== MAIN ======================== -->
+  <main class="dashboard-main">
+    <!-- Accent bar -->
+    <div class="accent-bar"></div>
 
-    <!-- Content Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-7xl mx-auto w-full">
-      <!-- Left Panel - Leaflet Maps -->
-      <div class="border-2 border-border rounded-3xl bg-card p-8 min-h-[500px] flex flex-col">
-        <h2 class="text-lg font-medium text-neutral-100 mb-1">Live Cane Location</h2>
+    <div class="dashboard-grid">
+      <!-- ======== LEFT: Map ======== -->
+      <section class="panel panel-map">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Live Cane Location</h2>
+            <p v-if="nearestPlaceLabel" class="panel-subtitle">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-icon"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+              {{ nearestPlaceLabel }}
+            </p>
+          </div>
+          <span class="panel-badge panel-badge--live">
+            <span class="live-dot"></span>
+            Real-time
+          </span>
+        </div>
+        <div id="map" class="map-container"></div>
+      </section>
 
-        <!-- Nearest Place Display -->
-        <p v-if="nearestPlaceLabel" class="text-xs text-neutral-400 mb-3">
-          Nearest: {{ nearestPlaceLabel }}
-        </p>
-
-        <!-- Map -->
-        <div id="map" class="rounded-2xl w-full h-[420px] overflow-hidden"></div>
-      </div>
-
-      <!-- Right Side -->
-      <div class="flex flex-col gap-4">
-        <!-- Top 4 Cards -->
-        <div class="grid grid-cols-4 gap-4">
-          <div
-            class="col-span-2 border-2 border-border rounded-3xl bg-card aspect-square relative overflow-hidden flex items-center justify-center"
-          >
-            <img
-              :src="batteryImage"
-              alt="Battery"
-              class="absolute inset-0 w-full h-full object-contain opacity-95 pointer-events-none"
-            />
-
-            <div
-              class="absolute z-10 font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-              :style="{
-                top: '7%',
-                left: '49.2%',
-                transform: 'translateX(-50%)',
-                fontSize: '55px',
-                color: batteryTextColor,
-              }"
-            >
-              {{ batteryPercentage }}%
+      <!-- ======== RIGHT: Metrics + Events ======== -->
+      <div class="right-column">
+        <!-- Metric cards row -->
+        <div class="metrics-row">
+          <!-- Battery Card -->
+          <div class="metric-card">
+            <div class="metric-card-label">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+              Battery
+            </div>
+            <div class="metric-visual battery-visual">
+              <img
+                :src="batteryImage"
+                alt="Battery"
+                class="battery-img"
+              />
+              <div
+                class="battery-overlay"
+                :style="{
+                  color: batteryTextColor,
+                }"
+              >
+                {{ batteryPercentage }}%
+              </div>
             </div>
           </div>
 
-          <!-- Heart rate card -->
-          <div
-            class="col-span-2 border-2 border-border rounded-3xl bg-card aspect-square relative overflow-hidden flex items-center justify-center"
-          >
-            <div
-              class="absolute rounded-full blur-3xl opacity-75"
-              :style="{
-                width: '80%',
-                height: '80%',
-                backgroundColor: currentHeartColor,
-              }"
-            ></div>
-
-            <img
-              :src="currentHeartImage"
-              alt="Heart"
-              class="relative z-10 w-[70%] h-[70%] object-contain pointer-events-none"
-            />
-
-            <div
-              class="absolute z-20 font-semibold text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]"
-              :style="{
-                top: '27%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                fontSize: '40px',
-                color: currentHeartTextColor,
-              }"
-            >
-              {{ status.heart_rate || 'N/A' }}<span v-if="status.heart_rate"> bpm</span>
+          <!-- Heart Rate Card -->
+          <div class="metric-card">
+            <div class="metric-card-label">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+              Heart Rate
+            </div>
+            <div class="metric-visual heart-visual">
+              <div
+                class="heart-glow"
+                :style="{
+                  backgroundColor: currentHeartColor,
+                }"
+              ></div>
+              <img
+                :src="currentHeartImage"
+                alt="Heart"
+                class="heart-img"
+              />
+              <div
+                class="heart-overlay"
+                :style="{
+                  color: currentHeartTextColor,
+                }"
+              >
+                {{ status.heart_rate || 'N/A' }}<span v-if="status.heart_rate" class="heart-unit"> bpm</span>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- Events Panel -->
-        <div class="border-2 border-border rounded-3xl bg-card p-8 flex-1 min-h-[400px]">
-          <div class="flex items-center justify-between mb-6">
-            <h2 class="text-lg font-medium text-neutral-100">Events Feed</h2>
-            <span v-if="events.length" class="text-xs text-neutral-400">
-              Showing {{ events.length }} recent events
+        <section class="panel panel-events">
+          <div class="panel-header">
+            <h2 class="panel-title">Events Feed</h2>
+            <span v-if="events.length" class="event-count">
+              {{ events.length }} recent
             </span>
           </div>
 
-          <div v-if="!events.length" class="space-y-6">
-            <p class="text-sm text-neutral-400">No recent events for this user.</p>
+          <!-- Empty state -->
+          <div v-if="!events.length" class="events-empty">
+            <p class="events-empty-text">No recent events for this user.</p>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div>
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Name</div>
-                <div class="text-neutral-100">
-                  {{ userInfo.name || '—' }}
-                </div>
+            <div class="user-info-grid">
+              <div class="info-item">
+                <span class="info-label">Name</span>
+                <span class="info-value">{{ userInfo.name || '--' }}</span>
               </div>
-
-              <div>
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Email</div>
-                <div class="text-neutral-100">
-                  {{ userInfo.email || '—' }}
-                </div>
+              <div class="info-item">
+                <span class="info-label">Email</span>
+                <span class="info-value">{{ userInfo.email || '--' }}</span>
               </div>
-
-              <div>
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Type</div>
-                <div class="text-neutral-100">
-                  {{ userInfo.type || '—' }}
-                </div>
+              <div class="info-item">
+                <span class="info-label">Type</span>
+                <span class="info-value">{{ userInfo.type || '--' }}</span>
               </div>
-
-              <div>
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Birth date</div>
-                <div class="text-neutral-100">
-                  {{ userInfo.birth_date || '—' }}
-                </div>
+              <div class="info-item">
+                <span class="info-label">Birth date</span>
+                <span class="info-value">{{ userInfo.birth_date || '--' }}</span>
               </div>
             </div>
           </div>
 
-          <div
-            v-else
-            class="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950/40"
-          >
-            <table class="w-full text-sm">
-              <thead class="bg-neutral-900/80">
+          <!-- Events table -->
+          <div v-else class="events-table-wrapper">
+            <table class="events-table">
+              <thead>
                 <tr>
-                  <th
-                    class="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wide"
-                  >
-                    Event
-                  </th>
-                  <th
-                    class="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wide"
-                  >
-                    Type
-                  </th>
-                  <th
-                    class="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wide"
-                  >
-                    Description
-                  </th>
-                  <th
-                    class="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wide"
-                  >
-                    Time
-                  </th>
+                  <th>Event</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Time</th>
                 </tr>
               </thead>
-
               <tbody>
                 <tr
                   v-for="event in events"
                   :key="event.id"
-                  class="border-t border-neutral-800 hover:bg-neutral-900/60 transition-colors"
                 >
-                  <td class="px-4 py-3 font-medium text-neutral-100">
-                    {{ event.name }}
-                  </td>
-
-                  <td class="px-4 py-3">
+                  <td class="event-name">{{ event.name }}</td>
+                  <td>
                     <span
                       :class="[
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-[13px] font-medium transition-colors',
-                        isAlertEvent(event)
-                          ? 'border border-red-500/70 text-red-100'
-                          : 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+                        'type-badge',
+                        isAlertEvent(event) ? 'type-badge--alert' : 'type-badge--ok',
                       ]"
                       :style="
                         isAlertEvent(event)
@@ -699,36 +633,723 @@ onUnmounted(() => {
                       {{ event.type }}
                     </span>
                   </td>
-
-                  <td class="px-4 py-3 text-neutral-200">
-                    {{ event.description }}
-                  </td>
-
-                  <td class="px-4 py-3 text-neutral-400 text-xs whitespace-nowrap">
-                    {{ new Date(event.created_at).toLocaleString() }}
-                  </td>
+                  <td class="event-desc">{{ event.description }}</td>
+                  <td class="event-time">{{ new Date(event.created_at).toLocaleString() }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       </div>
     </div>
-    <main class="p-4 flex flex-col gap-4 w-full">
-      <!-- Blue Header Bar -->
-      <div class="h-2 bg-blue-600 rounded-full mb-2" />
-    </main>
   </main>
 
-  <footer
-    class="fixed -bottom-4 left-1/2 -translate-x-1/2 w-[80%] max-w-7xl text-center text-sm border border-neutral-700/60 rounded-2xl px-4 py-3.5 bg-neutral-900/60 backdrop-blur text-neutral-300 shadow-sm"
-  >
-    <p>SenseWay © 2025 All Rights Reserved | Non Profit Organization</p>
+  <!-- ======================== FOOTER ======================== -->
+  <footer class="site-footer">
+    <p>SenseWay &copy; 2025 All Rights Reserved &middot; Non Profit Organization</p>
   </footer>
 </template>
 
 <style scoped>
+/* ========================================================
+   DESIGN TOKENS (scoped vars)
+   ======================================================== */
+:root {
+  --sw-bg: #0a0a0f;
+  --sw-surface: #111118;
+  --sw-surface-hover: #18181f;
+  --sw-border: rgba(255, 255, 255, 0.06);
+  --sw-border-strong: rgba(255, 255, 255, 0.1);
+  --sw-text: #f0f0f5;
+  --sw-text-secondary: #8b8b9e;
+  --sw-text-muted: #5a5a6e;
+  --sw-accent: #3b82f6;
+  --sw-accent-dim: rgba(59, 130, 246, 0.15);
+  --sw-radius: 16px;
+  --sw-radius-sm: 10px;
+  --sw-radius-xs: 6px;
+}
+
+/* ========================================================
+   HEADER
+   ======================================================== */
+.header-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(10, 10, 15, 0.82);
+  backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid var(--sw-border);
+}
+
+.header-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-sm);
+}
+
+.header-brand {
+  flex: 1;
+  min-width: 240px;
+}
+
+.brand-logo {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
+
+.brand-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--sw-border-strong);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.brand-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sw-text);
+  letter-spacing: 0.02em;
+}
+
+.brand-tm {
+  font-size: 9px;
+  vertical-align: super;
+  color: var(--sw-text-muted);
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--sw-text-secondary);
+}
+
+/* Header input */
+.header-input-section {
+  flex: 1;
+  min-width: 280px;
+  gap: 10px;
+}
+
+.input-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sw-text-secondary);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.input-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cane-input {
+  flex: 1;
+  background: var(--sw-bg);
+  border: 1px solid var(--sw-border-strong);
+  border-radius: var(--sw-radius-xs);
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--sw-text);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.cane-input::placeholder {
+  color: var(--sw-text-muted);
+}
+
+.cane-input:focus {
+  border-color: var(--sw-accent);
+  box-shadow: 0 0 0 3px var(--sw-accent-dim);
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Header user */
+.header-user {
+  flex: 1.1;
+  min-width: 300px;
+  justify-content: space-between;
+}
+
+.user-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.meta-premium {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-premium > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.meta-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sw-text-muted);
+}
+
+.meta-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sw-text);
+}
+
+.premium-text {
+  color: #fbbf24 !important;
+}
+
+.premium-icon {
+  height: 18px;
+  width: auto;
+}
+
+.meta-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--sw-border-strong);
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar-ring {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--sw-border-strong);
+  background: var(--sw-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--sw-text-secondary);
+}
+
+.user-greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.greeting-sub {
+  font-size: 10px;
+  color: var(--sw-text-muted);
+}
+
+.greeting-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sw-text);
+}
+
+.logout-btn {
+  margin-left: 6px;
+  padding: 6px 14px;
+  border-radius: var(--sw-radius-xs);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+/* ========================================================
+   MAIN DASHBOARD
+   ======================================================== */
+.dashboard-main {
+  padding: 20px 24px 80px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.accent-bar {
+  height: 3px;
+  border-radius: 100px;
+  background: linear-gradient(90deg, var(--sw-accent) 0%, transparent 100%);
+  margin-bottom: 20px;
+  opacity: 0.6;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ========================================================
+   PANELS (shared)
+   ======================================================== */
+.panel {
+  background: var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 24px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--sw-text);
+  margin: 0;
+}
+
+.panel-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--sw-text-secondary);
+  margin-top: 4px;
+}
+
+.inline-icon {
+  color: var(--sw-accent);
+  flex-shrink: 0;
+}
+
+.panel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.panel-badge--live {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* ========================================================
+   MAP
+   ======================================================== */
+.panel-map {
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.map-container {
+  flex: 1;
+  min-height: 420px;
+  border-radius: var(--sw-radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--sw-border);
+}
+
+/* ========================================================
+   RIGHT COLUMN
+   ======================================================== */
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ========================================================
+   METRIC CARDS
+   ======================================================== */
+.metrics-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.metric-card {
+  background: var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-card-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sw-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+
+.metric-card-label svg {
+  color: var(--sw-text-muted);
+}
+
+.metric-visual {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border-radius: var(--sw-radius-sm);
+  overflow: hidden;
+  background: var(--sw-bg);
+}
+
+/* Battery */
+.battery-visual {
+  /* no extra styles needed */
+}
+
+.battery-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+.battery-overlay {
+  position: absolute;
+  z-index: 10;
+  top: 7%;
+  left: 49.2%;
+  transform: translateX(-50%);
+  font-size: 48px;
+  font-weight: 700;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
+}
+
+/* Heart */
+.heart-glow {
+  position: absolute;
+  width: 80%;
+  height: 80%;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.6;
+}
+
+.heart-img {
+  position: relative;
+  z-index: 10;
+  width: 65%;
+  height: 65%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.heart-overlay {
+  position: absolute;
+  z-index: 20;
+  top: 25%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34px;
+  font-weight: 700;
+  text-align: center;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.95));
+  white-space: nowrap;
+}
+
+.heart-unit {
+  font-size: 16px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* ========================================================
+   EVENTS PANEL
+   ======================================================== */
+.panel-events {
+  flex: 1;
+  min-height: 320px;
+}
+
+.event-count {
+  font-size: 12px;
+  color: var(--sw-text-muted);
+  background: var(--sw-bg);
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--sw-border);
+}
+
+/* Empty state */
+.events-empty {
+  padding-top: 8px;
+}
+
+.events-empty-text {
+  font-size: 13px;
+  color: var(--sw-text-secondary);
+  margin-bottom: 20px;
+}
+
+.user-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.info-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sw-text-muted);
+  font-weight: 600;
+}
+
+.info-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sw-text);
+}
+
+/* Events table */
+.events-table-wrapper {
+  border-radius: var(--sw-radius-sm);
+  border: 1px solid var(--sw-border);
+  overflow: hidden;
+  background: var(--sw-bg);
+}
+
+.events-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.events-table thead {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.events-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sw-text-muted);
+  border-bottom: 1px solid var(--sw-border);
+}
+
+.events-table tbody tr {
+  border-top: 1px solid var(--sw-border);
+  transition: background 0.15s;
+}
+
+.events-table tbody tr:first-child {
+  border-top: none;
+}
+
+.events-table tbody tr:hover {
+  background: var(--sw-surface-hover);
+}
+
+.events-table td {
+  padding: 10px 14px;
+}
+
+.event-name {
+  font-weight: 600;
+  color: var(--sw-text);
+}
+
+.event-desc {
+  color: var(--sw-text-secondary);
+}
+
+.event-time {
+  font-size: 11px;
+  color: var(--sw-text-muted);
+  white-space: nowrap;
+}
+
+/* Type badges */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.type-badge--ok {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.type-badge--alert {
+  color: #fff;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+/* ========================================================
+   FOOTER
+   ======================================================== */
+.site-footer {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 700px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--sw-text-muted);
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--sw-border);
+  border-radius: 100px;
+  padding: 10px 20px;
+}
+
+.site-footer p {
+  margin: 0;
+}
+
+/* ========================================================
+   MAP OVERRIDE (Leaflet)
+   ======================================================== */
 #map {
   height: 100%;
+}
+
+/* ========================================================
+   RESPONSIVE
+   ======================================================== */
+@media (max-width: 768px) {
+  .header-inner {
+    flex-direction: column;
+  }
+
+  .header-section {
+    width: 100%;
+  }
+
+  .header-user {
+    flex-wrap: wrap;
+  }
+
+  .metrics-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .battery-overlay {
+    font-size: 36px;
+  }
+
+  .heart-overlay {
+    font-size: 26px;
+  }
+
+  .dashboard-main {
+    padding: 16px 12px 80px;
+  }
 }
 </style>
