@@ -1,53 +1,33 @@
 <script setup>
 import { ref } from 'vue'
-import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 const authStore = useAuthStore()
 const router = useRouter()
-const isLogin = ref(true)
 
-// --- Form State ---
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const firstName = ref('')
 const lastName = ref('')
-const userType = ref('Cane_User') // Default to Cane_User
-const birthDate = ref('') // Use YYYY-MM-DD format
-const homeLat = ref(0) // Example default
-const homeLong = ref(0) // Example default
+const userType = ref('Cane_User')
+const birthDate = ref('')
+const homeLat = ref(0)
+const homeLong = ref(0)
 const agreeTerms = ref(false)
 
 const error = ref('')
 const successMessage = ref('')
 
-// --- Handlers ---
-const handleLogin = async () => {
-  error.value = ''
-  successMessage.value = ''
-  const result = await authStore.login(email.value, password.value)
-  if (result.success) {
-    router.push({ name: 'dashboard' }) // Redirect to dashboard on successful login
-  } else {
-    error.value = result.error || 'Login failed. Please check your credentials.'
-  }
-}
-
 const handleRegister = async () => {
   error.value = ''
   successMessage.value = ''
+
   if (password.value !== confirmPassword.value) {
     error.value = 'Passwords do not match.'
     return
@@ -60,9 +40,9 @@ const handleRegister = async () => {
   const userData = {
     email: email.value,
     password: password.value,
-    name: `${firstName.value} ${lastName.value}`,
+    name: `${firstName.value} ${lastName.value}`.trim(),
     type: userType.value,
-    birth_date: new Date(birthDate.value), // Convert string to Date if needed by backend
+    birth_date: new Date(birthDate.value).toISOString(),
     home_long: parseFloat(homeLong.value),
     home_lat: parseFloat(homeLat.value),
   }
@@ -70,36 +50,10 @@ const handleRegister = async () => {
   const result = await authStore.register(userData)
   if (result.success) {
     successMessage.value = 'Registration successful! Please log in.'
-    isLogin.value = true // Switch to login form
-    // Clear registration fields
-    firstName.value = ''
-    lastName.value = ''
-    confirmPassword.value = ''
-    birthDate.value = ''
-    agreeTerms.value = false
-    // Keep email/password for convenience if desired, or clear them:
-    // email.value = ''
-    // password.value = ''
+    setTimeout(() => router.push({ name: 'login' }), 600)
   } else {
     error.value = result.error || 'Registration failed. Please try again.'
   }
-}
-
-const toggleForm = () => {
-  isLogin.value = !isLogin.value
-  error.value = '' // Clear errors when switching forms
-  successMessage.value = ''
-  // Clear fields when switching
-  email.value = ''
-  password.value = ''
-  confirmPassword.value = ''
-  firstName.value = ''
-  lastName.value = ''
-  userType.value = 'Cane_User'
-  birthDate.value = ''
-  homeLat.value = 0
-  homeLong.value = 0
-  agreeTerms.value = false
 }
 </script>
 
@@ -116,57 +70,11 @@ const toggleForm = () => {
     </div>
 
     <div class="flex items-center justify-center py-12 bg-background text-foreground">
-      <div class="mx-auto w-[400px] space-y-6">
-        <Card v-if="isLogin">
+      <div class="mx-auto w-[440px] space-y-6">
+        <Card>
           <CardHeader class="space-y-1 text-center">
-            <CardTitle class="text-2xl font-bold"> Welcome Back </CardTitle>
-            <CardDescription> Sign in to your SmartCane account </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form @submit.prevent="handleLogin" class="space-y-4">
-              <div class="space-y-2">
-                <Label for="login-email">Email Address</Label>
-                <Input
-                  id="login-email"
-                  type="email"
-                  placeholder="Enter your email"
-                  required
-                  v-model="email"
-                />
-              </div>
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <Label for="login-password">Password</Label>
-                  <a href="#" class="text-sm text-muted-foreground hover:underline">
-                    Forgot password?
-                  </a>
-                </div>
-                <Input
-                  id="login-password"
-                  type="password"
-                  placeholder="Enter your password"
-                  required
-                  v-model="password"
-                />
-              </div>
-              <Button type="submit" class="w-full"> Sign In </Button>
-
-              <p v-if="error" class="text-sm text-destructive text-center">{{ error }}</p>
-              <p v-if="successMessage" class="text-sm text-green-500 text-center">
-                {{ successMessage }}
-              </p>
-            </form>
-            <div class="mt-4 text-center text-sm text-muted-foreground">
-              Don't have an account?
-              <Button variant="link" class="p-0 h-auto" @click="toggleForm"> Sign up </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card v-else>
-          <CardHeader class="space-y-1 text-center">
-            <CardTitle class="text-2xl font-bold"> Create Account </CardTitle>
-            <CardDescription> Join SmartCane for enhanced mobility </CardDescription>
+            <CardTitle class="text-2xl font-bold">Create Account</CardTitle>
+            <CardDescription>Join SmartCane for enhanced mobility</CardDescription>
           </CardHeader>
           <CardContent>
             <form @submit.prevent="handleRegister" class="space-y-4">
@@ -180,26 +88,17 @@ const toggleForm = () => {
                   <Input id="last-name" placeholder="Last name" required v-model="lastName" />
                 </div>
               </div>
+
               <div class="space-y-2">
                 <Label for="register-email">Email Address</Label>
-                <Input
-                  id="register-email"
-                  type="email"
-                  placeholder="Enter your email"
-                  required
-                  v-model="email"
-                />
+                <Input id="register-email" type="email" placeholder="Enter your email" required v-model="email" />
               </div>
+
               <div class="space-y-2">
                 <Label for="register-password">Password</Label>
-                <Input
-                  id="register-password"
-                  type="password"
-                  placeholder="Create password"
-                  required
-                  v-model="password"
-                />
+                <Input id="register-password" type="password" placeholder="Create password" required v-model="password" />
               </div>
+
               <div class="space-y-2">
                 <Label for="confirm-password">Confirm Password</Label>
                 <Input
@@ -247,16 +146,16 @@ const toggleForm = () => {
                 </Label>
               </div>
 
-              <Button type="submit" class="w-full"> Create Account </Button>
+              <Button type="submit" class="w-full">Create Account</Button>
 
               <p v-if="error" class="text-sm text-destructive text-center">{{ error }}</p>
-              <p v-if="successMessage" class="text-sm text-green-500 text-center">
-                {{ successMessage }}
-              </p>
+              <p v-if="successMessage" class="text-sm text-green-500 text-center">{{ successMessage }}</p>
             </form>
             <div class="mt-4 text-center text-sm text-muted-foreground">
               Already have an account?
-              <Button variant="link" class="p-0 h-auto" @click="toggleForm"> Sign in </Button>
+              <Button variant="link" class="p-0 h-auto" @click="router.push({ name: 'login' })">
+                Sign in
+              </Button>
             </div>
           </CardContent>
         </Card>

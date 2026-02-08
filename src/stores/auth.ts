@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-const API_BASE_URL = 'https://api.senseway.ca'
+const API_BASE_URL = 'https://api.senseway.ca/'
 
 export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false)
@@ -51,9 +51,18 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function register(userData) {
+    // Ensure birth_date is sent as RFC3339 string, not Date object
+    const registerData = {
+      ...userData,
+      birth_date:
+        userData.birth_date instanceof Date
+          ? userData.birth_date.toISOString()
+          : userData.birth_date,
+    }
+
     const response = await fetchWithCredentials(`${API_BASE_URL}/register`, {
       method: 'POST',
-      body: JSON.stringify(userData),
+      body: JSON.stringify(registerData),
     })
 
     if (response.ok) {
