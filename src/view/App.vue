@@ -59,6 +59,21 @@ const userInfo = ref({
   password: '',
 })
 
+// Geofence state variables
+const geofenceMarker = ref(null)
+const geofenceCircle = ref(null)
+const geofenceRadius = ref(100)
+const geofence = ref(null)
+
+// Watch geofence radius to clamp values
+watch(geofenceRadius, (newRadius) => {
+  if (newRadius < 50) {
+    geofenceRadius.value = 50
+  } else if (newRadius > 5000) {
+    geofenceRadius.value = 5000
+  }
+})
+
 const nearestPlace = ref({
   name: '',
   city: '',
@@ -397,6 +412,80 @@ function initializeOrUpdateMap(lat, lon) {
       console.error('Failed to initialize map:', error)
     }
   }
+
+  // Add geofence click handler
+  if (map.value) {
+    map.value.on('click', handleMapClick)
+  }
+}
+
+function handleMapClick(e) {
+  const latlng = e.latlng
+
+  if (!geofenceMarker.value) {
+    geofenceMarker.value = L.marker(latlng, { draggable: true }).addTo(map.value)
+
+    geofenceMarker.value.on('drag', (e) => {
+      updateGeofenceCircle(e.target.getLatLng())
+    })
+  } else {
+    geofenceMarker.value.setLatLng(latlng)
+  }
+
+  updateGeofenceCircle(latlng)
+}
+
+function updateGeofenceCircle(latlng) {
+  if (geofenceCircle.value) {
+    geofenceCircle.value.setLatLng(latlng)
+    geofenceCircle.value.setRadius(geofenceRadius.value)
+
+  } else {
+
+    geofenceCircle.value = L.circle(latlng, {
+      radius: geofenceRadius.value,
+      color: 'blue ',
+      fillOpacity: 0.2
+    }).addTo(map.value)
+  }
+}
+
+function updateRadius() {
+  if (geofenceCircle.value) {
+    geofenceCircle.value.setRadius(geofenceRadius.value)
+  }
+}
+
+async function saveGeofence() {
+  if (!geofenceMarker.value) return
+
+  const data = {
+    user_id: id.value,
+    name: 'Geofence',
+    latitude: geofenceMarker.value.getLatLng().lat,
+    longitude: geofenceMarker.value.getLatLng().lng,
+    radius: geofenceRadius.value
+  }
+
+  try {
+    const response = await fetch(`${url}/fences`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result = await response.json()
+    geofence.value = result
+    console.log('Geofence saved:', result)
+  } catch (error) {
+    console.error('Failed to save geofence:', error)
+  }
 }
 
 let dataInterval = null
@@ -435,6 +524,17 @@ watch(
         marker.value = null
       }
 
+      // Clean up geofence elements
+      if (geofenceMarker.value) {
+        map.value?.removeLayer(geofenceMarker.value)
+        geofenceMarker.value = null
+      }
+      if (geofenceCircle.value) {
+        map.value?.removeLayer(geofenceCircle.value)
+        geofenceCircle.value = null
+      }
+      geofence.value = null
+
       getUserInfo(newID)
       getEvents(newID)
       getStatus(newID)
@@ -457,6 +557,11 @@ onUnmounted(() => {
     map.value = null
   }
   marker.value = null
+
+  // Clean up geofence elements
+  geofenceMarker.value = null
+  geofenceCircle.value = null
+  geofence.value = null
 })
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -575,6 +680,27 @@ onUnmounted(() => {
           </span>
         </div>
         <div id="map" class="map-container"></div>
+        
+        <!-- Geofence Controls -->
+        <div class="geofence-controls">
+          <h3 class="geofence-title">Geofence Settings</h3>
+          <div class="geofence-radius-control">
+            <label class="geofence-label">Radius (meters)</label>
+            <input
+              type="range"
+              min="50"
+              max="5000"
+              step="50"
+              v-model="geofenceRadius"
+              @input="updateRadius"
+              class="geofence-slider"
+            />
+            <span class="geofence-radius-value">{{ geofenceRadius }} m</span>
+          </div>
+          <button @click="saveGeofence" class="geofence-save-btn" :disabled="!geofenceMarker">
+            Save Geofence
+          </button>
+        </div>
       </section>
 
       <!-- ======== RIGHT: Metrics + Events ======== -->
@@ -1529,5 +1655,97 @@ onUnmounted(() => {
     max-width: 150px;
     font-size: 11px;
   }
+}
+
+/* ========================================================
+   GEOFENCE CONTROLS
+   ======================================================== */
+.geofence-controls {
+  padding: 20px;
+  border-top: 1px solid var(--sw-border);
+  background: var(--sw-surface);
+  border-radius: 0 0 var(--sw-radius-sm) var(--sw-radius-sm);
+}
+
+.geofence-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--sw-text);
+  margin: 0 0 16px 0;
+}
+
+.geofence-radius-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.geofence-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sw-text-secondary);
+}
+
+.geofence-slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #f8b4b4;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.geofence-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: 2px solid var(--sw-surface);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.geofence-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sw-accent);
+  cursor: pointer;
+  border: 2px solid var(--sw-surface);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.geofence-radius-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sw-accent);
+  text-align: center;
+}
+
+.geofence-save-btn {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--sw-accent);
+  color: white;
+  border: none;
+  border-radius: var(--sw-radius-xs);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.geofence-save-btn:hover:not(:disabled) {
+  background: var(--sw-accent-dim);
+}
+
+.geofence-save-btn:disabled {
+  background: var(--sw-border);
+  color: var(--sw-text-muted);
+  cursor: not-allowed;
 }
 </style>
