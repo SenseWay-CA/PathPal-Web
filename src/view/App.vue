@@ -20,7 +20,8 @@ const handleLogout = async () => {
   router.push({ name: 'home' })
 }
 
-const id = ref('c1987b12-3ffe-432a-ac13-4b06264409ed')
+// Use the authenticated user's ID
+const id = computed(() => authStore.user?.user_id || '')
 
 const map = ref(null)
 const marker = ref(null)
@@ -344,14 +345,44 @@ async function getStatus(currentId) {
     const lat = status.value.latitude
     const lon = status.value.longitude
 
-    if (map.value) {
-      map.value.setView([lat, lon])
-      if (marker.value) {
-        marker.value.setLatLng([lat, lon])
-      } else {
-        marker.value = L.marker([lat, lon], { icon: myIcon }).addTo(map.value)
-      }
+    // Validate coordinates
+    if (lat === null || lat === undefined || lon === null || lon === undefined) {
+      console.warn('Invalid coordinates received:', { lat, lon })
+      return
+    }
+
+    if (lat === 0 && lon === 0) {
+      console.warn('Coordinates are (0, 0) - user may not have location data')
+      return
+    }
+
+    initializeOrUpdateMap(lat, lon)
+    fetchNearestPlace(lat, lon)
+
+    console.log('Fetched Status:', status.value)
+  } catch (error) {
+    console.error('Failed to fetch status:', error.message)
+  }
+}
+
+function initializeOrUpdateMap(lat, lon) {
+  const mapElement = document.getElementById('map')
+  if (!mapElement) {
+    console.error('Map element with id "map" not found in DOM')
+    return
+  }
+
+  if (map.value) {
+    // Update existing map
+    map.value.setView([lat, lon], 17)
+    if (marker.value) {
+      marker.value.setLatLng([lat, lon])
     } else {
+      marker.value = L.marker([lat, lon], { icon: myIcon }).addTo(map.value)
+    }
+  } else {
+    // Initialize new map
+    try {
       map.value = L.map('map').setView([lat, lon], 17)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: `
@@ -361,22 +392,49 @@ async function getStatus(currentId) {
       }).addTo(map.value)
 
       marker.value = L.marker([lat, lon], { icon: myIcon }).addTo(map.value)
+      console.log('Map initialized successfully')
+    } catch (error) {
+      console.error('Failed to initialize map:', error)
     }
-
-    fetchNearestPlace(lat, lon)
-
-    console.log('Fetched Status:', status.value)
-  } catch (error) {
-    console.error('Failed to fetch status:', error.message)
   }
 }
 
 let dataInterval = null
 
+// Check authentication on mount
+onMounted(async () => {
+  if (!authStore.isAuthenticated) {
+    // If not authenticated, redirect to login
+    router.push({ name: 'login' })
+    return
+  }
+
+  // Initial data load after DOM is ready
+  const userId = id.value
+  if (userId) {
+    getUserInfo(userId)
+    getEvents(userId)
+    getStatus(userId)
+
+    if (dataInterval) clearInterval(dataInterval)
+    dataInterval = setInterval(() => {
+      getEvents(userId)
+      getStatus(userId)
+    }, 3000)
+  }
+})
+
 watch(
   id,
   (newID) => {
     if (newID) {
+      // Destroy old map and clean up
+      if (map.value) {
+        map.value.remove()
+        map.value = null
+        marker.value = null
+      }
+
       getUserInfo(newID)
       getEvents(newID)
       getStatus(newID)
@@ -388,11 +446,17 @@ watch(
       }, 3000)
     }
   },
-  { immediate: true },
+  { immediate: false }, // Changed from immediate: true
 )
 
 onUnmounted(() => {
   if (dataInterval) clearInterval(dataInterval)
+  // Clean up map
+  if (map.value) {
+    map.value.remove()
+    map.value = null
+  }
+  marker.value = null
 })
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -415,26 +479,8 @@ onUnmounted(() => {
         />
         <div class="brand-divider"></div>
         <div class="brand-text">
-          <span class="brand-name">SenseWay<sup class="brand-tm">TM</sup> DEMO</span>
-          <span class="brand-sub">Monitoring {{ userInfo.name || 'Unknown' }}'s Cane</span>
-        </div>
-      </div>
-
-      <!-- Middle: Cane ID Input -->
-      <div class="header-section header-input-section">
-        <label class="input-label" for="cane-id">Cane User ID</label>
-        <div class="input-wrapper">
-          <input
-            v-model="id"
-            id="cane-id"
-            type="text"
-            placeholder="Enter cane user ID..."
-            class="cane-input"
-          />
-          <span class="live-badge">
-            <span class="live-dot"></span>
-            LIVE
-          </span>
+          <span class="brand-name">SenseWay<sup class="brand-tm">TM</sup> Dashboard</span>
+          <span class="brand-sub">Your Personal Health Monitor</span>
         </div>
       </div>
 
@@ -446,6 +492,11 @@ onUnmounted(() => {
             <span class="meta-value">{{ userAge ?? '--' }}</span>
           </div>
           <div class="meta-divider"></div>
+          <div class="meta-item">
+            <span class="meta-label">Email</span>
+            <span class="meta-value meta-email">{{ authStore.user?.email || userInfo.email || '--' }}</span>
+          </div>
+          <div class="meta-divider"></div>
           <div class="meta-item meta-premium">
             <img
               src="https://i.gyazo.com/d40ab0225c23f165f4ac8422315ebbb6.png"
@@ -454,7 +505,7 @@ onUnmounted(() => {
             />
             <div>
               <span class="meta-label">Status</span>
-              <span class="meta-value premium-text">Premium</span>
+              <span class="meta-value premium-text">Active</span>
             </div>
           </div>
         </div>
@@ -474,7 +525,7 @@ onUnmounted(() => {
           </div>
           <div class="user-greeting">
             <span class="greeting-sub">Welcome back,</span>
-            <span class="greeting-name">{{ userInfo.name || 'John Doe' }}</span>
+            <span class="greeting-name">{{ authStore.user?.name || userInfo.name || 'User' }}</span>
           </div>
           <button @click="handleLogout" class="logout-btn">
             Logout
@@ -489,12 +540,30 @@ onUnmounted(() => {
     <!-- Accent bar -->
     <div class="accent-bar"></div>
 
+    <!-- Welcome Card -->
+    <section class="welcome-card">
+      <div class="welcome-content">
+        <h1 class="welcome-title">Welcome to Your Dashboard</h1>
+        <p class="welcome-subtitle">Monitor your health metrics and location in real-time</p>
+      </div>
+      <div class="welcome-stats">
+        <div class="stat-box">
+          <span class="stat-label">User ID</span>
+          <span class="stat-value code-text">{{ id || 'Loading...' }}</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Status</span>
+          <span class="stat-value active-badge">Active</span>
+        </div>
+      </div>
+    </section>
+
     <div class="dashboard-grid">
       <!-- ======== LEFT: Map ======== -->
       <section class="panel panel-map">
         <div class="panel-header">
           <div>
-            <h2 class="panel-title">Live Cane Location</h2>
+            <h2 class="panel-title">Your Current Location</h2>
             <p v-if="nearestPlaceLabel" class="panel-subtitle">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-icon"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
               {{ nearestPlaceLabel }}
@@ -690,6 +759,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 16px;
+  justify-content: space-between;
 }
 
 .header-section {
@@ -703,7 +773,7 @@ onUnmounted(() => {
 }
 
 .header-brand {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 240px;
 }
 
@@ -817,7 +887,7 @@ onUnmounted(() => {
 
 /* Header user */
 .header-user {
-  flex: 1.1;
+  flex: 1 1 auto;
   min-width: 300px;
   justify-content: space-between;
 }
@@ -1015,6 +1085,97 @@ onUnmounted(() => {
   background: rgba(59, 130, 246, 0.1);
   color: #60a5fa;
   border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* ========================================================
+   WELCOME CARD
+   ======================================================== */
+.welcome-card {
+  background: linear-gradient(135deg, var(--sw-surface) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 28px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.welcome-content {
+  flex: 1;
+}
+
+.welcome-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--sw-text);
+  margin: 0 0 8px 0;
+}
+
+.welcome-subtitle {
+  font-size: 14px;
+  color: var(--sw-text-secondary);
+  margin: 0;
+}
+
+.welcome-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--sw-bg);
+  border: 1px solid var(--sw-border-strong);
+  border-radius: var(--sw-radius-sm);
+}
+
+.stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sw-text-muted);
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sw-text);
+}
+
+.code-text {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 11px;
+  color: var(--sw-accent);
+  word-break: break-all;
+}
+
+.active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: rgba(34, 197, 94, 0.15);
+  border-radius: 100px;
+  color: #86efac;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.active-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
 /* ========================================================
@@ -1350,6 +1511,23 @@ onUnmounted(() => {
 
   .dashboard-main {
     padding: 16px 12px 80px;
+  }
+
+  .welcome-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
+  }
+
+  .welcome-stats {
+    justify-content: center;
+  }
+
+  .meta-email {
+    white-space: normal;
+    word-break: break-all;
+    max-width: 150px;
+    font-size: 11px;
   }
 }
 </style>
