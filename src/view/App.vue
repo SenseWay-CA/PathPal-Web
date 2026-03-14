@@ -3,6 +3,12 @@ import { useDark } from '@vueuse/core'
 import { RouterView, useRouter } from 'vue-router'
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import {
+  listGeofences,
+  createGeofence,
+  updateGeofence as updateGeofenceApi,
+  deleteGeofence as deleteGeofenceApi,
+} from '@/services/geofenceApi'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { BatteryCharging } from 'lucide-vue-next'
@@ -63,7 +69,16 @@ const userInfo = ref({
 const geofenceMarker = ref(null)
 const geofenceCircle = ref(null)
 const geofenceRadius = ref(100)
+const geofenceName = ref('Geofence')
 const geofence = ref(null)
+const geofences = ref([])
+const geofenceLayers = new Map()
+const selectedGeofenceId = ref(null)
+const geofenceLoading = ref(false)
+const geofenceSaving = ref(false)
+const geofenceDeleting = ref(false)
+const geofenceSaveMessage = ref('')
+const geofenceSaveMessageType = ref('')
 
 // Watch geofence radius to clamp values
 watch(geofenceRadius, (newRadius) => {
@@ -415,24 +430,99 @@ function initializeOrUpdateMap(lat, lon) {
 
   // Add geofence click handler
   if (map.value) {
+    map.value.off('click', handleMapClick)
     map.value.on('click', handleMapClick)
+    renderGeofencesOnMap()
   }
 }
 
-function handleMapClick(e) {
-  const latlng = e.latlng
+function normalizeGeofenceName(name) {
+  const trimmed = (name || '').trim()
+  return trimmed || 'Geofence'
+}
+
+function clearGeofenceDraftLayers() {
+  if (map.value && geofenceMarker.value) {
+    map.value.removeLayer(geofenceMarker.value)
+  }
+  if (map.value && geofenceCircle.value) {
+    map.value.removeLayer(geofenceCircle.value)
+  }
+  geofenceMarker.value = null
+  geofenceCircle.value = null
+}
+
+function clearAllGeofenceLayers() {
+  geofenceLayers.forEach((layer) => {
+    if (map.value && layer) {
+      map.value.removeLayer(layer)
+    }
+  })
+  geofenceLayers.clear()
+}
+
+function resetGeofenceDraft() {
+  clearGeofenceDraftLayers()
+  geofence.value = null
+  selectedGeofenceId.value = null
+  geofenceRadius.value = 100
+  geofenceName.value = 'Geofence'
+}
+
+function upsertGeofenceInState(saved) {
+  const normalized = {
+    ...saved,
+    radius: Number(saved.radius),
+  }
+
+  const idx = geofences.value.findIndex((item) => item.id === normalized.id)
+  if (idx >= 0) {
+    geofences.value[idx] = normalized
+  } else {
+    geofences.value.unshift(normalized)
+  }
+}
+
+function removeGeofenceFromState(fenceId) {
+  geofences.value = geofences.value.filter((item) => item.id !== fenceId)
+}
+
+function buildGeofencePopupHTML(fence) {
+  const safeName = (fence.name || 'Geofence').replace(/[<>]/g, '')
+  const radiusValue = Number(fence.radius) || 0
+  return `
+    <div style="min-width: 210px; display: grid; gap: 8px;">
+      <div style="font-weight: 700; color: #111827;">${safeName}</div>
+      <div style="font-size: 12px; color: #4b5563;">Radius: ${radiusValue}m</div>
+      <div style="display: flex; gap: 8px;">
+        <button id="geofence-edit-${fence.id}" style="padding: 6px 10px; border-radius: 6px; border: none; background: #0ea5e9; color: #ffffff; cursor: pointer;">Edit</button>
+        <button id="geofence-delete-${fence.id}" style="padding: 6px 10px; border-radius: 6px; border: none; background: #ef4444; color: #ffffff; cursor: pointer;">Delete</button>
+      </div>
+    </div>
+  `
+}
+
+function applyGeofenceDraft(latlng) {
+  if (!map.value) return
 
   if (!geofenceMarker.value) {
     geofenceMarker.value = L.marker(latlng, { draggable: true }).addTo(map.value)
-
-    geofenceMarker.value.on('drag', (e) => {
-      updateGeofenceCircle(e.target.getLatLng())
+    geofenceMarker.value.on('drag', (event) => {
+      updateGeofenceCircle(event.target.getLatLng())
     })
   } else {
     geofenceMarker.value.setLatLng(latlng)
   }
 
   updateGeofenceCircle(latlng)
+}
+
+function handleMapClick(e) {
+  if (geofenceSaving.value || geofenceDeleting.value) return
+
+  geofenceSaveMessage.value = ''
+  geofenceSaveMessageType.value = ''
+  applyGeofenceDraft(e.latlng)
 }
 
 function updateGeofenceCircle(latlng) {
@@ -444,7 +534,7 @@ function updateGeofenceCircle(latlng) {
 
     geofenceCircle.value = L.circle(latlng, {
       radius: geofenceRadius.value,
-      color: 'blue ',
+      color: '#0ea5e9',
       fillOpacity: 0.2
     }).addTo(map.value)
   }
@@ -456,35 +546,218 @@ function updateRadius() {
   }
 }
 
-async function saveGeofence() {
-  if (!geofenceMarker.value) return
+function renderGeofencesOnMap() {
+  if (!map.value) return
 
-  const data = {
-    user_id: id.value,
-    name: 'Geofence',
-    latitude: geofenceMarker.value.getLatLng().lat,
-    longitude: geofenceMarker.value.getLatLng().lng,
-    radius: geofenceRadius.value
-  }
+  const knownIds = new Set(geofences.value.map((item) => item.id))
+  geofenceLayers.forEach((layer, layerId) => {
+    if (!knownIds.has(layerId) && map.value) {
+      map.value.removeLayer(layer)
+      geofenceLayers.delete(layerId)
+    }
+  })
 
-  try {
-    const response = await fetch(`${url}/fences`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    })
+  geofences.value.forEach((fence) => {
+    if (!fence?.id) return
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+    const previousLayer = geofenceLayers.get(fence.id)
+    if (previousLayer && map.value) {
+      map.value.removeLayer(previousLayer)
     }
 
-    const result = await response.json()
-    geofence.value = result
-    console.log('Geofence saved:', result)
+    const isSelected = selectedGeofenceId.value === fence.id
+    const layer = L.circle([fence.latitude, fence.longitude], {
+      radius: Number(fence.radius),
+      color: isSelected ? '#f97316' : '#16a34a',
+      fillColor: isSelected ? '#fb923c' : '#4ade80',
+      fillOpacity: 0.18,
+      weight: isSelected ? 3 : 2,
+    }).addTo(map.value)
+
+    layer.bindPopup(buildGeofencePopupHTML(fence))
+    layer.on('click', () => {
+      selectExistingGeofence(fence.id, false)
+    })
+    layer.on('popupopen', () => {
+      const editButton = document.getElementById(`geofence-edit-${fence.id}`)
+      if (editButton) {
+        editButton.onclick = () => {
+          selectExistingGeofence(fence.id, true)
+        }
+      }
+
+      const deleteButton = document.getElementById(`geofence-delete-${fence.id}`)
+      if (deleteButton) {
+        deleteButton.onclick = () => {
+          deleteSelectedGeofence(fence.id)
+        }
+      }
+    })
+
+    geofenceLayers.set(fence.id, layer)
+  })
+}
+
+function selectExistingGeofence(fenceId, closePopup = false) {
+  const selected = geofences.value.find((item) => item.id === fenceId)
+  if (!selected) return
+
+  selectedGeofenceId.value = selected.id
+  geofence.value = { ...selected }
+  geofenceRadius.value = Number(selected.radius)
+  geofenceName.value = selected.name || 'Geofence'
+
+  applyGeofenceDraft({ lat: selected.latitude, lng: selected.longitude })
+  renderGeofencesOnMap()
+
+  if (closePopup) {
+    geofenceLayers.get(selected.id)?.closePopup()
+  }
+}
+
+async function fetchGeofences() {
+  if (!id.value) return
+
+  geofenceLoading.value = true
+  try {
+    const result = await listGeofences(id.value)
+    geofences.value = Array.isArray(result)
+      ? result.map((item) => ({
+          ...item,
+          radius: Number(item.radius),
+        }))
+      : []
+    renderGeofencesOnMap()
   } catch (error) {
+    const details = error?.response?.data?.error || error?.message || 'Unable to load geofences.'
+    geofenceSaveMessage.value = `Failed to load geofences: ${details}`
+    geofenceSaveMessageType.value = 'error'
+  } finally {
+    geofenceLoading.value = false
+  }
+}
+
+async function saveGeofence() {
+  if (geofenceSaving.value) return
+
+  geofenceSaveMessage.value = ''
+  geofenceSaveMessageType.value = ''
+
+  if (!geofenceMarker.value) {
+    geofenceSaveMessage.value = 'Please place a geofence marker on the map first.'
+    geofenceSaveMessageType.value = 'error'
+    return
+  }
+
+  if (!id.value) {
+    geofenceSaveMessage.value = 'Missing user ID. Please log in again and retry.'
+    geofenceSaveMessageType.value = 'error'
+    return
+  }
+
+  const radius = Number(geofenceRadius.value)
+  if (Number.isNaN(radius) || radius <= 0) {
+    geofenceSaveMessage.value = 'Radius must be greater than 0 meters.'
+    geofenceSaveMessageType.value = 'error'
+    return
+  }
+
+  const markerLatLng = geofenceMarker.value.getLatLng?.()
+  if (!markerLatLng) {
+    geofenceSaveMessage.value = 'Invalid marker location. Please place the marker again.'
+    geofenceSaveMessageType.value = 'error'
+    return
+  }
+
+  const geofenceId = geofence.value?.id
+
+  const payload = {
+    user_id: id.value,
+    name: normalizeGeofenceName(geofenceName.value),
+    enabled: true,
+    latitude: markerLatLng.lat,
+    longitude: markerLatLng.lng,
+    radius,
+  }
+
+  geofenceSaving.value = true
+
+  try {
+    const result = geofenceId
+      ? await updateGeofenceApi(geofenceId, payload)
+      : await createGeofence(payload)
+
+    if (!result || !result.id) {
+      throw new Error('Server did not return a persisted geofence record.')
+    }
+
+    // Always refresh local reactive state with the newest saved data.
+    geofence.value = {
+      ...result,
+      radius: Number(result.radius),
+    }
+    selectedGeofenceId.value = result.id
+    geofenceName.value = geofence.value.name || 'Geofence'
+
+    upsertGeofenceInState(geofence.value)
+    renderGeofencesOnMap()
+
+    geofenceSaveMessage.value = geofenceId ? 'Geofence updated successfully.' : 'Geofence created successfully.'
+    geofenceSaveMessageType.value = 'success'
+    console.log('Geofence saved:', geofence.value)
+  } catch (error) {
+    if (error?.code === 'ERR_NETWORK' || error instanceof TypeError) {
+      geofenceSaveMessage.value = 'Network error while saving geofence. Please check your connection and try again.'
+    } else {
+      const details = error?.response?.data?.error || error?.message || 'Unknown error'
+      geofenceSaveMessage.value = `Failed to save geofence: ${details}`
+    }
+    geofenceSaveMessageType.value = 'error'
     console.error('Failed to save geofence:', error)
+  } finally {
+    geofenceSaving.value = false
+  }
+}
+
+async function deleteSelectedGeofence(fenceId = geofence.value?.id) {
+  if (!fenceId || geofenceDeleting.value || geofenceSaving.value) return
+
+  if (!id.value) {
+    geofenceSaveMessage.value = 'Missing user ID. Please log in again and retry.'
+    geofenceSaveMessageType.value = 'error'
+    return
+  }
+
+  geofenceDeleting.value = true
+  geofenceSaveMessage.value = ''
+  geofenceSaveMessageType.value = ''
+
+  try {
+    await deleteGeofenceApi(fenceId, id.value)
+
+    if (map.value && geofenceLayers.has(fenceId)) {
+      map.value.removeLayer(geofenceLayers.get(fenceId))
+      geofenceLayers.delete(fenceId)
+    }
+
+    removeGeofenceFromState(fenceId)
+
+    if (selectedGeofenceId.value === fenceId || geofence.value?.id === fenceId) {
+      resetGeofenceDraft()
+    }
+
+    geofenceSaveMessage.value = 'Geofence deleted successfully.'
+    geofenceSaveMessageType.value = 'success'
+  } catch (error) {
+    if (error?.code === 'ERR_NETWORK' || error instanceof TypeError) {
+      geofenceSaveMessage.value = 'Network error while deleting geofence. Please check your connection and try again.'
+    } else {
+      const details = error?.response?.data?.error || error?.message || 'Unknown error'
+      geofenceSaveMessage.value = `Failed to delete geofence: ${details}`
+    }
+    geofenceSaveMessageType.value = 'error'
+  } finally {
+    geofenceDeleting.value = false
   }
 }
 
@@ -504,11 +777,13 @@ onMounted(async () => {
     getUserInfo(userId)
     getEvents(userId)
     getStatus(userId)
+    //fetchGeofences()
 
     if (dataInterval) clearInterval(dataInterval)
     dataInterval = setInterval(() => {
       getEvents(userId)
       getStatus(userId)
+      //fetchGeofences()
     }, 3000)
   }
 })
@@ -524,25 +799,21 @@ watch(
         marker.value = null
       }
 
-      // Clean up geofence elements
-      if (geofenceMarker.value) {
-        map.value?.removeLayer(geofenceMarker.value)
-        geofenceMarker.value = null
-      }
-      if (geofenceCircle.value) {
-        map.value?.removeLayer(geofenceCircle.value)
-        geofenceCircle.value = null
-      }
+      clearGeofenceDraftLayers()
+      clearAllGeofenceLayers()
       geofence.value = null
+      geofences.value = []
 
       getUserInfo(newID)
       getEvents(newID)
       getStatus(newID)
+      //fetchGeofences()
 
       if (dataInterval) clearInterval(dataInterval)
       dataInterval = setInterval(() => {
         getEvents(newID)
         getStatus(newID)
+        //fetchGeofences()
       }, 3000)
     }
   },
@@ -552,16 +823,15 @@ watch(
 onUnmounted(() => {
   if (dataInterval) clearInterval(dataInterval)
   // Clean up map
+  clearGeofenceDraftLayers()
+  clearAllGeofenceLayers()
   if (map.value) {
     map.value.remove()
     map.value = null
   }
   marker.value = null
-
-  // Clean up geofence elements
-  geofenceMarker.value = null
-  geofenceCircle.value = null
   geofence.value = null
+  geofences.value = []
 })
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -684,6 +954,16 @@ onUnmounted(() => {
         <!-- Geofence Controls -->
         <div class="geofence-controls">
           <h3 class="geofence-title">Geofence Settings</h3>
+          <div class="geofence-name-control">
+            <label class="geofence-label">Name</label>
+            <input
+              v-model.trim="geofenceName"
+              type="text"
+              maxlength="60"
+              class="geofence-name-input"
+              placeholder="Home perimeter"
+            />
+          </div>
           <div class="geofence-radius-control">
             <label class="geofence-label">Radius (meters)</label>
             <input
@@ -697,9 +977,48 @@ onUnmounted(() => {
             />
             <span class="geofence-radius-value">{{ geofenceRadius }} m</span>
           </div>
-          <button @click="saveGeofence" class="geofence-save-btn" :disabled="!geofenceMarker">
-            Save Geofence
-          </button>
+          <p class="geofence-helper-text">Click anywhere on the map to place or move the draft marker.</p>
+          <div class="geofence-action-row">
+            <button
+              @click="saveGeofence"
+              class="geofence-save-btn"
+              :disabled="!geofenceMarker || geofenceSaving || geofenceDeleting"
+            >
+              {{ geofenceSaving ? 'Saving...' : geofence?.id ? 'Update Geofence' : 'Save Geofence' }}
+            </button>
+            <button
+              @click="deleteSelectedGeofence()"
+              class="geofence-delete-btn"
+              :disabled="!geofence?.id || geofenceSaving || geofenceDeleting"
+            >
+              {{ geofenceDeleting ? 'Deleting...' : 'Delete Geofence' }}
+            </button>
+          </div>
+          <p v-if="geofenceLoading" class="geofence-loading-text">Loading geofences...</p>
+          <div v-if="geofences.length" class="geofence-list-wrap">
+            <p class="geofence-list-title">Saved geofences</p>
+            <div class="geofence-list">
+              <button
+                v-for="item in geofences"
+                :key="item.id"
+                class="geofence-list-item"
+                :class="{ 'geofence-list-item--active': item.id === selectedGeofenceId }"
+                @click="selectExistingGeofence(item.id)"
+              >
+                <span class="geofence-list-item-name">{{ item.name || 'Geofence' }}</span>
+                <span class="geofence-list-item-meta">{{ Math.round(Number(item.radius) || 0) }} m</span>
+              </button>
+            </div>
+          </div>
+          <p
+            v-if="geofenceSaveMessage"
+            :class="[
+              'geofence-message',
+              geofenceSaveMessageType === 'success' ? 'geofence-message--success' : 'geofence-message--error',
+            ]"
+          >
+            {{ geofenceSaveMessage }}
+          </p>
         </div>
       </section>
 
@@ -1376,11 +1695,6 @@ onUnmounted(() => {
   background: var(--sw-bg);
 }
 
-/* Battery */
-.battery-visual {
-  /* no extra styles needed */
-}
-
 .battery-img {
   position: absolute;
   inset: 0;
@@ -1674,6 +1988,28 @@ onUnmounted(() => {
   margin: 0 0 16px 0;
 }
 
+.geofence-name-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.geofence-name-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-xs);
+  background: var(--sw-card);
+  color: var(--sw-text);
+  font-size: 14px;
+}
+
+.geofence-name-input:focus {
+  outline: 2px solid rgba(14, 165, 233, 0.35);
+  border-color: #0ea5e9;
+}
+
 .geofence-radius-control {
   display: flex;
   flex-direction: column;
@@ -1726,6 +2062,18 @@ onUnmounted(() => {
   text-align: center;
 }
 
+.geofence-helper-text {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--sw-text-muted);
+}
+
+.geofence-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .geofence-save-btn {
   width: 100%;
   padding: 12px 16px;
@@ -1747,5 +2095,103 @@ onUnmounted(() => {
   background: var(--sw-border);
   color: var(--sw-text-muted);
   cursor: not-allowed;
+}
+
+.geofence-delete-btn {
+  width: 100%;
+  padding: 12px 16px;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: var(--sw-radius-xs);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.geofence-delete-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.geofence-delete-btn:disabled {
+  background: var(--sw-border);
+  color: var(--sw-text-muted);
+  cursor: not-allowed;
+}
+
+.geofence-loading-text {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--sw-text-muted);
+}
+
+.geofence-list-wrap {
+  margin-top: 14px;
+}
+
+.geofence-list-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sw-text-muted);
+}
+
+.geofence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.geofence-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius-xs);
+  background: var(--sw-card);
+  color: var(--sw-text);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.geofence-list-item--active {
+  border-color: #f97316;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.35);
+}
+
+.geofence-list-item-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.geofence-list-item-meta {
+  font-size: 12px;
+  color: var(--sw-text-muted);
+}
+
+.geofence-message {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--sw-radius-xs);
+  border: 1px solid transparent;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.geofence-message--success {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.geofence-message--error {
+  color: #fda4af;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 </style>
