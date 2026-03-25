@@ -1,6 +1,27 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, LayoutDashboard, Target, Settings, LogOut, User, Mail, Camera, Bell, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save } from 'lucide-vue-next'
+
+// ── click-outside directive ──
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutsideHandler = (e) => {
+      if (!el.contains(e.target)) binding.value(e)
+    }
+    document.addEventListener('click', el.__clickOutsideHandler)
+  },
+  unmounted(el) {
+    document.removeEventListener('click', el.__clickOutsideHandler)
+  },
+}
+
+// ── visual enhancement state ──
+const isLoading = ref(true)
+const topoCanvasRef = ref(null)
+const loadingTyped = ref('')
+const loadingProgress = ref(0)
+let topoAnimFrame = null
 import { useAuthStore } from '@/stores/auth'
 import {
   listGeofences,
@@ -220,6 +241,19 @@ function wmoLabel(code) {
 const weatherLabel = computed(() => {
   const c = weatherData.value.code
   return c != null ? wmoLabel(c) : null
+})
+
+const WeatherIconComponent = computed(() => {
+  const c = weatherData.value.code
+  if (c == null) return Cloud
+  if (c === 0) return Sun
+  if (c <= 3) return CloudSun
+  if (c <= 48) return CloudFog
+  if (c <= 55) return CloudDrizzle
+  if (c <= 65) return CloudRain
+  if (c <= 77 || (c >= 85 && c <= 86)) return CloudSnow
+  if (c >= 95) return CloudLightning
+  return Cloud
 })
 
 // pavement/safety condition derived from weather code
@@ -491,7 +525,7 @@ function initializeOrUpdateMap(lat, lon) {
       map.value = L.map('map').setView([lat, lon], 17)
       // carto dark tiles for dark theme
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '<span style="color:#4f8ff7;">SenseWay © 2025</span>',
+        attribution: '<span style="color:#4f8ff7;">SenseWay © 2026</span>',
         subdomains: 'abcd',
         maxZoom: 19,
       }).addTo(map.value)
@@ -867,7 +901,262 @@ onUnmounted(() => {
   miniMarker.value = null
   geofence.value = null
   geofences.value = []
+  if (topoAnimFrame) cancelAnimationFrame(topoAnimFrame)
 })
+
+// ── topography canvas + loading screen ──
+onMounted(() => {
+  nextTick(() => {
+    const canvas = topoCanvasRef.value
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const dpr = window.devicePixelRatio || 1
+    let tick = 0
+
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight
+      canvas.width = w * dpr
+      canvas.height = h * dpr
+      canvas.style.width = w + 'px'
+      canvas.style.height = h + 'px'
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    function getH(x, t) {
+      const s = 0.003
+      return (
+        Math.sin(x * s * 2 + t) * 30 +
+        Math.sin(x * s * 3.7 + t * 0.7) * 20 +
+        Math.sin(x * s * 1.3 - t * 0.5) * 40 +
+        Math.sin(x * s * 5.1 + t * 1.2) * 10 +
+        Math.sin(x * s * 0.7 + t * 0.3) * 50
+      )
+    }
+
+    function drawTopo() {
+      tick += 0.006
+      const w = window.innerWidth, h = window.innerHeight
+      ctx.clearRect(0, 0, w, h)
+      ctx.strokeStyle = 'rgba(79,143,247,0.07)'
+      ctx.lineWidth = 0.8
+      ctx.lineCap = 'round'
+      const n = 22
+      const sp = h / (n - 1)
+      for (let i = 0; i < n; i++) {
+        const base = sp * i
+        ctx.beginPath()
+        let started = false
+        for (let x = -60; x <= w + 60; x += 4) {
+          const y = base + getH(x + i * 120, tick)
+          if (!started) { ctx.moveTo(x, y); started = true }
+          else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+      }
+      topoAnimFrame = requestAnimationFrame(drawTopo)
+    }
+    drawTopo()
+  })
+
+  // typewriter
+  const full = 'Initializing your dashboard...'
+  let idx = 0
+  const tw = setInterval(() => {
+    if (idx < full.length) loadingTyped.value = full.slice(0, ++idx)
+    else clearInterval(tw)
+  }, 55)
+
+  // progress bar fills over 5.8 s
+  const t0 = Date.now()
+  const prog = setInterval(() => {
+    const elapsed = Date.now() - t0
+    loadingProgress.value = Math.min((elapsed / 5800) * 100, 100)
+    if (loadingProgress.value >= 100) clearInterval(prog)
+  }, 40)
+
+  // hide loading screen after 6 s
+  setTimeout(() => { isLoading.value = false }, 6000)
+})
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                    N O T I F I C A T I O N S  +  C O N F I R M
+//
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+let notifIdCounter = 0
+const notifications = ref([])
+
+function addNotification(type, title, message) {
+  const id = ++notifIdCounter
+  notifications.value.push({ id, type, title, message })
+  setTimeout(() => {
+    notifications.value = notifications.value.filter((n) => n.id !== id)
+  }, 4500)
+}
+
+function dismissNotif(id) {
+  notifications.value = notifications.value.filter((n) => n.id !== id)
+}
+
+const confirmDialog = ref({ show: false, title: '', message: '', disclaimer: '', onConfirm: null })
+
+function showConfirm(title, message, disclaimer, onConfirm) {
+  confirmDialog.value = { show: true, title, message, disclaimer, onConfirm }
+}
+
+function confirmOk() {
+  if (confirmDialog.value.onConfirm) confirmDialog.value.onConfirm()
+  confirmDialog.value.show = false
+}
+
+function confirmCancel() {
+  confirmDialog.value.show = false
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                    A V A T A R  D R O P D O W N
+//
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+const showAvatarMenu = ref(false)
+
+function toggleAvatarMenu() {
+  showAvatarMenu.value = !showAvatarMenu.value
+}
+
+function closeAvatarMenu() {
+  showAvatarMenu.value = false
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                    P R O F I L E  P I C T U R E
+//
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+const profilePicUrl = ref(localStorage.getItem('sw_profile_pic') || '')
+
+function saveProfilePic(url) {
+  profilePicUrl.value = url
+  localStorage.setItem('sw_profile_pic', url)
+  addNotification('success', 'Profile picture updated', 'Your new avatar has been saved.')
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                    A C C O U N T  E D I T I N G
+//
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+const editMode = ref(false)
+const profilePicInput = ref('')
+
+const profileForm = ref({
+  name: '', email: '', birth_date: '', newPassword: '', confirmPassword: '',
+})
+
+function openEditMode() {
+  profileForm.value = {
+    name: userInfo.value.name || authStore.user?.name || '',
+    email: userInfo.value.email || authStore.user?.email || '',
+    birth_date: userInfo.value.birth_date
+      ? new Date(userInfo.value.birth_date).toISOString().slice(0, 10)
+      : '',
+    newPassword: '',
+    confirmPassword: '',
+  }
+  profilePicInput.value = profilePicUrl.value
+  editMode.value = true
+}
+
+function cancelEditMode() {
+  editMode.value = false
+}
+
+async function doSaveProfile() {
+  const f = profileForm.value
+  if (f.newPassword && f.newPassword !== f.confirmPassword) {
+    addNotification('error', 'Password mismatch', 'New password and confirmation do not match.')
+    return
+  }
+
+  const payload = {
+    user_id: id.value,
+    email: f.email.trim(),
+    name: f.name.trim(),
+    type: userInfo.value.type || authStore.user?.type || '',
+    birth_date: f.birth_date ? new Date(f.birth_date).toISOString() : new Date(userInfo.value.birth_date).toISOString(),
+    home_long: userInfo.value.home_long || 0,
+    home_lat: userInfo.value.home_lat || 0,
+    ...(f.newPassword ? { password: f.newPassword } : {}),
+  }
+
+  try {
+    const resp = await fetch(`${url}/user`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}))
+      throw new Error(err.error || `Server error ${resp.status}`)
+    }
+    const updated = await resp.json()
+    userInfo.value = { ...userInfo.value, ...updated }
+    authStore.updateCachedUser({ name: updated.name, email: updated.email })
+    if (profilePicInput.value !== profilePicUrl.value) {
+      saveProfilePic(profilePicInput.value)
+    }
+    editMode.value = false
+    addNotification('success', 'Profile updated', 'Your account details have been saved successfully.')
+  } catch (err) {
+    addNotification('error', 'Update failed', err.message || 'Could not save changes.')
+  }
+}
+
+function requestSaveProfile() {
+  showConfirm(
+    'Save Account Changes',
+    'Are you sure you want to update your account information?',
+    '⚠️ Ensure your details are accurate. This information may be used by emergency services.',
+    doSaveProfile,
+  )
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                    H O M E  L O C A T I O N  G E O C O D I N G
+//
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+const homeGeoLabel = ref('')
+
+async function fetchHomeGeoLabel(lat, lon) {
+  if (!lat || !lon || (lat === 0 && lon === 0)) return
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14&addressdetails=1`,
+    )
+    if (!resp.ok) return
+    const data = await resp.json()
+    const a = data.address || {}
+    const parts = [a.city || a.town || a.village || '', a.country || ''].filter(Boolean)
+    homeGeoLabel.value = parts.join(', ')
+  } catch (_) {}
+}
+
+watch(
+  () => userInfo.value.home_lat,
+  (lat) => {
+    fetchHomeGeoLabel(lat, userInfo.value.home_long)
+  },
+  { immediate: false },
+)
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //
@@ -877,12 +1166,74 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- Topography canvas background -->
+  <canvas ref="topoCanvasRef" class="topo-canvas"></canvas>
+
+  <!-- ==================== notification toasts ==================== -->
+  <Teleport to="body">
+    <div class="notif-stack">
+      <TransitionGroup name="notif">
+        <div
+          v-for="n in notifications"
+          :key="n.id"
+          :class="['notif-toast', `notif-toast--${n.type}`]"
+        >
+          <CheckCircle v-if="n.type === 'success'" :size="16" class="notif-icon" />
+          <AlertTriangle v-else :size="16" class="notif-icon" />
+          <div class="notif-body">
+            <span class="notif-title">{{ n.title }}</span>
+            <span v-if="n.message" class="notif-msg">{{ n.message }}</span>
+          </div>
+          <button class="notif-close" @click="dismissNotif(n.id)"><X :size="13" /></button>
+        </div>
+      </TransitionGroup>
+    </div>
+  </Teleport>
+
+  <!-- ==================== confirm dialog ==================== -->
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="confirmDialog.show" class="modal-backdrop" @click.self="confirmCancel">
+        <div class="modal-box">
+          <div class="modal-head">
+            <AlertTriangle :size="20" class="modal-icon" />
+            <h3 class="modal-title">{{ confirmDialog.title }}</h3>
+          </div>
+          <p class="modal-body">{{ confirmDialog.message }}</p>
+          <p v-if="confirmDialog.warning" class="modal-warning">{{ confirmDialog.warning }}</p>
+          <div class="modal-foot">
+            <button class="btn btn-ghost" @click="confirmCancel">Cancel</button>
+            <button class="btn btn-primary" @click="confirmOk">Confirm</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <!-- 6-second loading screen -->
+  <Transition name="loading-fade">
+    <div v-if="isLoading" class="loading-overlay">
+      <div class="loading-center">
+        <div class="loading-logo-wrap">
+          <div class="loading-logo-ring"></div>
+          <img src="https://i.gyazo.com/465fb186323ea1edccb73b28fb4b8bd4.png" class="loading-logo" alt="SenseWay" />
+        </div>
+        <h1 class="loading-title">SenseWay</h1>
+        <p class="loading-tagline">Smart Cane · Health Monitoring · Safety</p>
+        <p class="loading-sub">{{ loadingTyped }}<span class="loading-cursor">|</span></p>
+        <div class="loading-bar-track">
+          <div class="loading-bar-fill" :style="{ width: loadingProgress + '%' }"></div>
+        </div>
+      </div>
+    </div>
+  </Transition>
+
   <div class="app-shell">
 
     <!-- ==================== sidebar ==================== -->
     <nav class="sidebar">
       <div class="sidebar-logo">
-        <img src="https://i.gyazo.com/5ebc3dc6c713fc1ae66bcc5d4704a0bd.png" class="logo-img" alt="SenseWay" />
+        <img src="https://i.gyazo.com/465fb186323ea1edccb73b28fb4b8bd4.png" class="logo-img" alt="SenseWay" />
       </div>
 
       <div class="sidebar-nav">
@@ -956,12 +1307,42 @@ onUnmounted(() => {
           </div>
 
           <div class="topbar-right">
-            <div class="tb-avatar">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
-            </div>
-            <div class="tb-user-info">
-              <span class="tb-user-name">{{ authStore.user?.name || 'User' }}</span>
-              <span class="tb-user-role">{{ authStore.user?.type || '—' }}</span>
+            <div class="avatar-wrap" @click="toggleAvatarMenu" v-click-outside="closeAvatarMenu">
+              <div class="tb-avatar" :class="{ 'tb-avatar--active': showAvatarMenu }">
+                <img v-if="profilePicUrl" :src="profilePicUrl" class="tb-avatar-img" alt="avatar" @error="(e) => e.target.style.display='none'" />
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+              </div>
+              <div class="tb-user-info">
+                <span class="tb-user-name">{{ authStore.user?.name || 'User' }}</span>
+                <span class="tb-user-role">{{ authStore.user?.type || '—' }}</span>
+              </div>
+              <ChevronDown :size="14" class="tb-chevron" :class="{ 'tb-chevron--open': showAvatarMenu }" />
+
+              <!-- dropdown -->
+              <Transition name="dropdown">
+                <div v-if="showAvatarMenu" class="avatar-dropdown" @click.stop>
+                  <div class="avd-header">
+                    <div class="avd-avatar">
+                      <img v-if="profilePicUrl" :src="profilePicUrl" class="avd-avatar-img" alt="avatar" @error="(e) => e.target.style.display='none'" />
+                      <svg v-else xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+                    </div>
+                    <div class="avd-info">
+                      <span class="avd-name">{{ authStore.user?.name || 'User' }}</span>
+                      <span class="avd-email">{{ authStore.user?.email || '' }}</span>
+                    </div>
+                  </div>
+                  <div class="avd-divider"></div>
+                  <button class="avd-item" @click="setTab('settings'); closeAvatarMenu()">
+                    <Settings :size="14" />
+                    <span>Settings</span>
+                  </button>
+                  <div class="avd-divider"></div>
+                  <button class="avd-item avd-item--danger" @click="handleLogout">
+                    <LogOut :size="14" />
+                    <span>Log out</span>
+                  </button>
+                </div>
+              </Transition>
             </div>
           </div>
         </div>
@@ -1003,32 +1384,32 @@ onUnmounted(() => {
               <div class="loc-detail-grid">
                 <!-- neighbourhood -->
                 <div v-if="nearestPlace.neighbourhood" class="loc-detail-item">
-                  <span class="loc-detail-key">Neighbourhood</span>
+                  <span class="loc-detail-key"><Building2 :size="10" class="loc-dk-icon" /> Neighbourhood</span>
                   <span class="loc-detail-val">{{ nearestPlace.neighbourhood }}</span>
                 </div>
                 <!-- road -->
                 <div v-if="nearestPlace.road" class="loc-detail-item">
-                  <span class="loc-detail-key">Street</span>
+                  <span class="loc-detail-key"><Navigation2 :size="10" class="loc-dk-icon" /> Street</span>
                   <span class="loc-detail-val">{{ nearestPlace.road }}</span>
                 </div>
                 <!-- postcode -->
                 <div v-if="nearestPlace.postcode" class="loc-detail-item">
-                  <span class="loc-detail-key">Postal Code</span>
+                  <span class="loc-detail-key"><Hash :size="10" class="loc-dk-icon" /> Postal Code</span>
                   <span class="loc-detail-val">{{ nearestPlace.postcode }}</span>
                 </div>
                 <!-- state -->
                 <div v-if="nearestPlace.state" class="loc-detail-item">
-                  <span class="loc-detail-key">Province / State</span>
+                  <span class="loc-detail-key"><Globe :size="10" class="loc-dk-icon" /> Province / State</span>
                   <span class="loc-detail-val">{{ nearestPlace.state }}</span>
                 </div>
                 <!-- elevation -->
                 <div v-if="weatherData.elevation != null" class="loc-detail-item">
-                  <span class="loc-detail-key">Elevation</span>
+                  <span class="loc-detail-key"><Mountain :size="10" class="loc-dk-icon" /> Elevation</span>
                   <span class="loc-detail-val">{{ weatherData.elevation }} m</span>
                 </div>
                 <!-- coordinates -->
                 <div class="loc-detail-item">
-                  <span class="loc-detail-key">Coordinates</span>
+                  <span class="loc-detail-key"><MapPin :size="10" class="loc-dk-icon" /> Coordinates</span>
                   <span class="loc-detail-val">{{ status.latitude?.toFixed(5) }}, {{ status.longitude?.toFixed(5) }}</span>
                 </div>
               </div>
@@ -1037,19 +1418,31 @@ onUnmounted(() => {
               <div v-if="weatherLabel" class="loc-weather-strip">
                 <div class="loc-weather-row">
                   <div class="loc-wx-item">
-                    <span class="loc-wx-key">Weather</span>
+                    <span class="loc-wx-key">
+                      <component :is="WeatherIconComponent" :size="11" class="wx-icon" />
+                      Weather
+                    </span>
                     <span class="loc-wx-val">{{ weatherLabel }}</span>
                   </div>
                   <div v-if="weatherData.temp != null" class="loc-wx-item">
-                    <span class="loc-wx-key">Temperature</span>
+                    <span class="loc-wx-key">
+                      <Thermometer :size="11" class="wx-icon" />
+                      Temperature
+                    </span>
                     <span class="loc-wx-val">{{ weatherData.temp }}°C</span>
                   </div>
                   <div v-if="weatherData.wind != null" class="loc-wx-item">
-                    <span class="loc-wx-key">Wind</span>
+                    <span class="loc-wx-key">
+                      <Wind :size="11" class="wx-icon" />
+                      Wind
+                    </span>
                     <span class="loc-wx-val">{{ weatherData.wind }} km/h</span>
                   </div>
                   <div v-if="weatherData.humidity != null" class="loc-wx-item">
-                    <span class="loc-wx-key">Humidity</span>
+                    <span class="loc-wx-key">
+                      <Droplets :size="11" class="wx-icon" />
+                      Humidity
+                    </span>
                     <span class="loc-wx-val">{{ weatherData.humidity }}%</span>
                   </div>
                 </div>
@@ -1258,14 +1651,75 @@ onUnmounted(() => {
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
                   <span class="card-title">Account</span>
                 </div>
+                <button v-if="!editMode" class="btn-icon-sm" @click="openEditMode" title="Edit profile">
+                  <Edit2 :size="14" />
+                </button>
               </div>
-              <div class="settings-rows">
+
+              <!-- profile picture row -->
+              <div class="profile-pic-row">
+                <div class="profile-pic-avatar">
+                  <img v-if="profilePicUrl" :src="profilePicUrl" class="profile-pic-img" alt="avatar" @error="(e) => e.target.style.display='none'" />
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".5"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+                </div>
+                <div class="profile-pic-info">
+                  <span class="profile-pic-name">{{ userInfo.name || authStore.user?.name || 'User' }}</span>
+                  <span class="profile-pic-role">{{ userInfo.type || authStore.user?.type || '—' }}</span>
+                </div>
+              </div>
+
+              <!-- view mode -->
+              <div v-if="!editMode" class="settings-rows">
                 <div class="srow"><span class="skey">Name</span><span class="sval">{{ userInfo.name || authStore.user?.name || '—' }}</span></div>
                 <div class="srow"><span class="skey">Email</span><span class="sval">{{ userInfo.email || authStore.user?.email || '—' }}</span></div>
                 <div class="srow"><span class="skey">Role</span><span class="sval">{{ userInfo.type || authStore.user?.type || '—' }}</span></div>
                 <div class="srow"><span class="skey">Age</span><span class="sval">{{ userAge != null ? userAge + ' years old' : '—' }}</span></div>
                 <div class="srow"><span class="skey">Birth Date</span><span class="sval">{{ userInfo.birth_date ? new Date(userInfo.birth_date).toLocaleDateString() : '—' }}</span></div>
-                <div class="srow"><span class="skey">Home Location</span><span class="sval">{{ userInfo.home_lat ? userInfo.home_lat.toFixed(4) + ', ' + userInfo.home_long.toFixed(4) : '—' }}</span></div>
+                <div class="srow">
+                  <span class="skey">Home Location</span>
+                  <span class="sval">
+                    <span v-if="homeGeoLabel">{{ homeGeoLabel }}</span>
+                    <span v-if="userInfo.home_lat" class="sval-coords">&nbsp;({{ userInfo.home_lat.toFixed(4) }}, {{ userInfo.home_long.toFixed(4) }})</span>
+                    <span v-if="!userInfo.home_lat && !homeGeoLabel">—</span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- edit mode -->
+              <div v-else class="edit-form">
+                <div class="field">
+                  <label class="field-label">Avatar URL</label>
+                  <div class="input-with-preview">
+                    <input v-model="profilePicInput" type="url" class="field-input" placeholder="https://example.com/avatar.png" />
+                    <img v-if="profilePicInput" :src="profilePicInput" class="avatar-preview-sm" alt="" @error="(e) => e.target.style.display='none'" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="field-label">Name</label>
+                  <input v-model="profileForm.name" type="text" class="field-input" placeholder="Your name" />
+                </div>
+                <div class="field">
+                  <label class="field-label">Email</label>
+                  <input v-model="profileForm.email" type="email" class="field-input" placeholder="your@email.com" />
+                </div>
+                <div class="field">
+                  <label class="field-label">Birth Date</label>
+                  <input v-model="profileForm.birth_date" type="date" class="field-input field-input--date" />
+                </div>
+                <div class="field">
+                  <label class="field-label">New Password <span class="field-optional">(leave blank to keep current)</span></label>
+                  <input v-model="profileForm.newPassword" type="password" class="field-input" placeholder="New password" autocomplete="new-password" />
+                </div>
+                <div class="field">
+                  <label class="field-label">Confirm Password</label>
+                  <input v-model="profileForm.confirmPassword" type="password" class="field-input" placeholder="Confirm new password" autocomplete="new-password" />
+                </div>
+                <div class="edit-form-btns">
+                  <button class="btn btn-ghost" @click="cancelEditMode">Cancel</button>
+                  <button class="btn btn-primary" @click="requestSaveProfile">
+                    <Save :size="13" style="margin-right:5px" />Save Changes
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1323,7 +1777,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <div class="about-body">
-                <img src="https://i.gyazo.com/5ebc3dc6c713fc1ae66bcc5d4704a0bd.png" class="about-logo" alt="SenseWay logo" />
+                <img src="https://i.gyazo.com/465fb186323ea1edccb73b28fb4b8bd4.png" class="about-logo" alt="SenseWay logo" />
                 <p class="about-desc">SenseWay™ is a smart health monitoring platform for cane users and their caregivers. Real-time GPS tracking, heart rate monitoring, and geofencing to keep your loved ones safe.</p>
                 <div class="about-tags">
                   <span class="about-tag">GPS Tracking</span>
@@ -1331,7 +1785,7 @@ onUnmounted(() => {
                   <span class="about-tag">Geofencing</span>
                   <span class="about-tag">Live Alerts</span>
                 </div>
-                <p class="about-copy">SenseWay™ © 2025 · Non-Profit Organization</p>
+                <p class="about-copy">SenseWay™ © 2026 · Non-Profit Organization</p>
               </div>
             </div>
 
@@ -1344,10 +1798,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-
-.about-desc {
-  color: #ffffff;
-}
 /* ── design tokens ── */
 :root {
   --bg:      #080810;
@@ -1424,25 +1874,37 @@ onUnmounted(() => {
   border-radius: 16px;
   border: none;
   background: transparent;
-  color: var(--dim);
+  color: #c8c8d8;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.18s, color 0.18s, transform 0.18s, box-shadow 0.18s;
   padding: 0;
+  position: relative;
 }
 
 .nav-btn:hover {
-  background: rgba(255,255,255,0.06);
-  color: var(--muted);
+  background: rgba(79,143,247,0.1);
+  color: #ffffff;
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 4px 16px rgba(79,143,247,0.18);
+}
+
+.nav-btn:active {
+  transform: translateY(0) scale(0.97);
 }
 
 .nav-btn--active {
-  background: rgba(79,143,247,0.14);
-  color: var(--accent);
+  background: rgba(79,143,247,0.16);
+  color: #4f8ff7;
+  box-shadow: 0 0 0 1px rgba(79,143,247,0.3);
+}
+
+.nav-btn--active:hover {
+  box-shadow: 0 4px 18px rgba(79,143,247,0.3), 0 0 0 1px rgba(79,143,247,0.3);
 }
 
 .nav-btn--logout {
@@ -1450,8 +1912,10 @@ onUnmounted(() => {
 }
 
 .nav-btn--logout:hover {
-  background: rgba(239,68,68,0.12);
+  background: rgba(239,68,68,0.16);
   color: #fca5a5;
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 4px 16px rgba(239,68,68,0.2);
 }
 
 .nav-label {
@@ -1883,9 +2347,17 @@ onUnmounted(() => {
 .loc-detail-key {
   font-size: 9px;
   font-weight: 700;
-  color: var(--dim);
+  color: #c8c8d8;
   text-transform: uppercase;
   letter-spacing: 0.07em;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.loc-dk-icon {
+  opacity: 0.6;
+  flex-shrink: 0;
 }
 
 .loc-detail-val {
@@ -2181,7 +2653,7 @@ onUnmounted(() => {
 }
 
 .ev-desc {
-  color: var(--muted);
+  color: #c8c8d8;
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2641,7 +3113,7 @@ onUnmounted(() => {
 
 .about-desc {
   font-size: 13px;
-  color: var(--muted);
+  color: #c8c8d8;
   line-height: 1.6;
   margin: 0;
 }
@@ -2694,4 +3166,595 @@ onUnmounted(() => {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 100px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* ── topography canvas ── */
+.topo-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: #080810;
+}
+
+/* make app-shell sit above canvas */
+.app-shell {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── loading overlay ── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(8, 8, 16, 0.92);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  text-align: center;
+  animation: loading-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes loading-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.loading-logo-wrap {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-logo-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: conic-gradient(from 0deg, #4f8ff7, #a855f7, #10b981, #4f8ff7) border-box;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  animation: ring-spin 3s linear infinite;
+}
+
+@keyframes ring-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.loading-logo {
+  width: 90px;
+  height: 90px;
+  object-fit: contain;
+  border-radius: 50%;
+  animation: logo-pulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 16px rgba(79, 143, 247, 0.4));
+}
+
+@keyframes logo-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 12px rgba(79,143,247,0.35)); }
+  50%       { transform: scale(1.05); filter: drop-shadow(0 0 28px rgba(79,143,247,0.65)); }
+}
+
+.loading-title {
+  font-size: 48px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+  background: linear-gradient(90deg, #4f8ff7, #a855f7, #10b981, #4f8ff7);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-flow 4s ease infinite;
+}
+
+@keyframes gradient-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.loading-tagline {
+  font-size: 13px;
+  color: rgba(79,143,247,0.8);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin: -10px 0 0;
+}
+
+.loading-sub {
+  font-size: 14px;
+  color: rgba(200, 200, 216, 0.7);
+  margin: 0;
+  min-height: 20px;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.02em;
+}
+
+.loading-cursor {
+  color: #4f8ff7;
+  animation: cursor-blink 0.75s step-end infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.loading-bar-track {
+  width: 240px;
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 100px;
+  overflow: hidden;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #4f8ff7, #a855f7);
+  transition: width 0.1s linear;
+  box-shadow: 0 0 8px rgba(79,143,247,0.6);
+}
+
+/* ── loading fade-out transition ── */
+.loading-fade-leave-active {
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.loading-fade-leave-to {
+  opacity: 0;
+  transform: scale(1.03);
+}
+
+/* ── weather icon alignment ── */
+.loc-wx-key {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wx-icon {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+/* ── card entrance animations ── */
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dash-grid > .card-map    { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.05s both; }
+.dash-grid > .metrics-col { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.12s both; }
+.dash-grid > .card-profile { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.19s both; }
+.dash-grid > .card-events  { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.26s both; }
+
+.settings-grid > .card:nth-child(1) { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.05s both; }
+.settings-grid > .card:nth-child(2) { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.12s both; }
+.settings-grid > .card:nth-child(3) { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.19s both; }
+.settings-grid > .card:nth-child(4) { animation: card-enter 0.45s cubic-bezier(0.22,1,0.36,1) 0.26s both; }
+
+/* ── avatar dropdown (topbar) ── */
+.avatar-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 14px;
+  transition: background 0.18s;
+  user-select: none;
+}
+.avatar-wrap:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.tb-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(79,143,247,0.15);
+  border: 1.5px solid rgba(79,143,247,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.tb-avatar--active {
+  border-color: #4f8ff7;
+  box-shadow: 0 0 0 3px rgba(79,143,247,0.18);
+}
+.tb-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tb-chevron {
+  color: var(--dim);
+  transition: transform 0.22s cubic-bezier(0.22,1,0.36,1), color 0.18s;
+  flex-shrink: 0;
+}
+.tb-chevron--open {
+  transform: rotate(180deg);
+  color: #4f8ff7;
+}
+
+.avatar-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 240px;
+  background: #0e0e1a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  padding: 8px;
+  z-index: 100;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+  backdrop-filter: blur(12px);
+}
+
+.avd-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 12px;
+}
+
+.avd-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(79,143,247,0.15);
+  border: 1.5px solid rgba(79,143,247,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.avd-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avd-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+.avd-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.avd-email {
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.avd-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.07);
+  margin: 4px 0;
+}
+
+.avd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: none;
+  background: none;
+  color: #c8c8d8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.avd-item:hover {
+  background: rgba(255,255,255,0.07);
+  color: #fff;
+}
+.avd-item--danger { color: #f87171; }
+.avd-item--danger:hover {
+  background: rgba(239,68,68,0.12);
+  color: #fca5a5;
+}
+
+/* dropdown enter/leave */
+.dropdown-enter-active {
+  transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.22,1,0.36,1);
+}
+.dropdown-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+
+/* ── notification toasts ── */
+.notif-stack {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.notif-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid;
+  min-width: 280px;
+  max-width: 360px;
+  pointer-events: all;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+.notif-toast--success {
+  background: rgba(16,185,129,0.12);
+  border-color: rgba(16,185,129,0.3);
+}
+.notif-toast--error {
+  background: rgba(239,68,68,0.12);
+  border-color: rgba(239,68,68,0.3);
+}
+
+.notif-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.notif-toast--success .notif-icon { color: #34d399; }
+.notif-toast--error   .notif-icon { color: #f87171; }
+
+.notif-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.notif-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+.notif-msg {
+  font-size: 12px;
+  color: rgba(200,200,216,0.8);
+  line-height: 1.4;
+}
+
+.notif-close {
+  background: none;
+  border: none;
+  color: rgba(200,200,216,0.5);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.notif-close:hover { color: #fff; }
+
+/* toast transitions */
+.notif-enter-active { transition: all 0.28s cubic-bezier(0.22,1,0.36,1); }
+.notif-leave-active { transition: all 0.2s ease; }
+.notif-enter-from  { opacity: 0; transform: translateX(30px); }
+.notif-leave-to    { opacity: 0; transform: translateX(30px); }
+
+/* ── confirm modal ── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-box {
+  background: #0e0e1a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 22px;
+  padding: 28px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.modal-icon { color: #f59e0b; flex-shrink: 0; }
+.modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  margin: 0;
+}
+
+.modal-body {
+  font-size: 13px;
+  color: #c8c8d8;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+
+.modal-warning {
+  font-size: 12px;
+  color: #fbbf24;
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+
+.modal-foot {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.modal-fade-enter-active { transition: all 0.22s cubic-bezier(0.22,1,0.36,1); }
+.modal-fade-leave-active { transition: all 0.16s ease; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+.modal-fade-enter-from .modal-box { transform: scale(0.94); }
+
+/* ── account edit form ── */
+.btn-icon-sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--border2);
+  background: rgba(255,255,255,0.05);
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.btn-icon-sm:hover {
+  background: rgba(79,143,247,0.12);
+  color: #4f8ff7;
+  border-color: rgba(79,143,247,0.25);
+}
+
+.profile-pic-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.profile-pic-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(79,143,247,0.12);
+  border: 2px solid rgba(79,143,247,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.profile-pic-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-pic-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.profile-pic-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+.profile-pic-role {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: capitalize;
+}
+
+.sval-coords {
+  font-size: 11px;
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 10px;
+}
+
+.field-optional {
+  font-size: 11px;
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.input-with-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.input-with-preview .field-input {
+  flex: 1;
+}
+.avatar-preview-sm {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border2);
+  flex-shrink: 0;
+}
+
+.field-input--date {
+  color-scheme: dark;
+}
+
+.edit-form-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.edit-form-btns .btn-ghost { flex: 1; }
+.edit-form-btns .btn-primary { flex: 2; }
 </style>

@@ -2,10 +2,14 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 const API_BASE_URL = 'https://api.senseway.ca'
+const LS_USER_KEY = 'sw_user_cache'
 
 export const useAuthStore = defineStore('auth', () => {
-  const isAuthenticated = ref(false)
-  const user = ref(null)
+  // restore cached user for instant UI — still validated against server in checkAuth
+  const cachedRaw = localStorage.getItem(LS_USER_KEY)
+  const isAuthenticated = ref(!!cachedRaw)
+  const user = ref(cachedRaw ? JSON.parse(cachedRaw) : null)
+
   const fetchWithCredentials = async (url, options = {}) => {
     options.credentials = 'include'
     options.headers = {
@@ -36,11 +40,13 @@ export const useAuthStore = defineStore('auth', () => {
       const userData = await response.json()
       isAuthenticated.value = true
       user.value = userData
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(userData))
       console.log('Login successful:', userData)
       return { success: true, user: userData }
     } else {
       isAuthenticated.value = false
       user.value = null
+      localStorage.removeItem(LS_USER_KEY)
       const errorData = await response.json().catch(() => ({ error: 'Login failed' }))
       console.error('Login failed:', response.status, errorData)
       return { success: false, error: errorData.error || 'Invalid credentials' }
@@ -48,7 +54,6 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function register(userData) {
-    // Ensure birth_date is sent as RFC3339 string, not Date object
     const registerData = {
       ...userData,
       birth_date:
@@ -77,6 +82,7 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await fetchWithCredentials(`${API_BASE_URL}/session`, { method: 'DELETE' })
     isAuthenticated.value = false
     user.value = null
+    localStorage.removeItem(LS_USER_KEY)
     console.log('Logout status:', response.ok)
   }
 
@@ -88,15 +94,23 @@ export const useAuthStore = defineStore('auth', () => {
       const userData = await response.json()
       isAuthenticated.value = true
       user.value = userData
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(userData))
       console.log('Auth check successful:', userData)
       return true
     } else {
       isAuthenticated.value = false
       user.value = null
+      localStorage.removeItem(LS_USER_KEY)
       console.log('Auth check failed:', response.status)
       return false
     }
   }
 
-  return { isAuthenticated, user, login, register, logout, checkAuth }
+  // update cached user after profile edits
+  function updateCachedUser(updated) {
+    user.value = { ...user.value, ...updated }
+    localStorage.setItem(LS_USER_KEY, JSON.stringify(user.value))
+  }
+
+  return { isAuthenticated, user, login, register, logout, checkAuth, updateCachedUser }
 })
