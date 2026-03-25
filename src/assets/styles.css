@@ -47,17 +47,17 @@
    ====================================================== */
 :root {
   --background: #080810;
-  --foreground: #eeeef5;
+  --foreground: #ffffff;
   --card: #0e0e18;
-  --card-foreground: #eeeef5;
+  --card-foreground: #ffffff;
   --popover: #0e0e18;
-  --popover-foreground: #eeeef5;
+  --popover-foreground: #ffffff;
   --primary: #4f8ff7;
   --primary-foreground: #fafafa;
   --secondary: #141420;
-  --secondary-foreground: #eeeef5;
+  --secondary-foreground: #ffffff;
   --muted: #141420;
-  --muted-foreground: #5c5c72;
+  --muted-foreground: #c8c8d8;
   --accent: #4f8ff7;
   --accent-foreground: #fafafa;
   --destructive: #ef4444;
@@ -70,7 +70,7 @@
   --chart-3: #f5c542;
   --chart-4: #a855f7;
   --chart-5: #ef4444;
-  --radius: 0.75rem;
+  --radius: 1.25rem;
   --sidebar: #0a0a14;
   --sidebar-foreground: #eeeef5;
   --sidebar-primary: #4f8ff7;
@@ -83,17 +83,17 @@
 
 .dark {
   --background: #080810;
-  --foreground: #eeeef5;
+  --foreground: #ffffff;
   --card: #0e0e18;
-  --card-foreground: #eeeef5;
+  --card-foreground: #ffffff;
   --popover: #0e0e18;
-  --popover-foreground: #eeeef5;
+  --popover-foreground: #ffffff;
   --primary: #4f8ff7;
   --primary-foreground: #fafafa;
   --secondary: #141420;
-  --secondary-foreground: #eeeef5;
+  --secondary-foreground: #ffffff;
   --muted: #141420;
-  --muted-foreground: #5c5c72;
+  --muted-foreground: #c8c8d8;
   --accent: #4f8ff7;
   --accent-foreground: #fafafa;
   --destructive: #ef4444;
