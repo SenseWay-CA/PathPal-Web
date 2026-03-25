@@ -1,7 +1,7 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, LayoutDashboard, Target, Settings, LogOut, User, Mail, Camera, Bell, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save } from 'lucide-vue-next'
+import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, LayoutDashboard, Target, Settings, LogOut, User, Mail, Camera, Bell, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save, Briefcase, GraduationCap, Hospital, Pill, Leaf, ShoppingCart, Dumbbell, Layers } from 'lucide-vue-next'
 
 // ── click-outside directive ──
 const vClickOutside = {
@@ -156,6 +156,118 @@ const geofenceSaveMessageType = ref('')
 
 let geofenceMessageTimer = null
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                                    zone presets
+
+const ZONE_PRESETS = [
+  { id: 'home',     label: 'Home'      },
+  { id: 'work',     label: 'Work'      },
+  { id: 'school',   label: 'School'    },
+  { id: 'hospital', label: 'Hospital'  },
+  { id: 'pharmacy', label: 'Pharmacy'  },
+  { id: 'park',     label: 'Park'      },
+  { id: 'grocery',  label: 'Grocery'   },
+  { id: 'gym',      label: 'Gym'       },
+  { id: 'other',    label: 'Other'     },
+]
+
+const ZONE_COLORS = {
+  home:     '#4f8ff7',
+  work:     '#a855f7',
+  school:   '#f59e0b',
+  hospital: '#ef4444',
+  pharmacy: '#10b981',
+  park:     '#22c55e',
+  grocery:  '#f97316',
+  gym:      '#06b6d4',
+  other:    '#71717a',
+}
+
+// Lucide SVG path data (24×24 viewBox, no fill, stroke=white applied via wrapper)
+const ZONE_SVG = {
+  home:     `<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>`,
+  work:     `<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>`,
+  school:   `<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>`,
+  hospital: `<path d="M12 7v4"/><path d="M14 9h-4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M18 11h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2"/><path d="M18 21V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16"/>`,
+  pharmacy: `<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>`,
+  park:     `<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>`,
+  grocery:  `<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>`,
+  gym:      `<path d="M17.596 12.768a2 2 0 1 0 2.829-2.829l-1.768-1.767a2 2 0 0 0 2.828-2.829l-2.828-2.828a2 2 0 0 0-2.829 2.828l-1.767-1.768a2 2 0 1 0-2.829 2.829z"/><path d="m9.6 14.4 4.8-4.8"/><path d="M5.343 21.485a2 2 0 1 0 2.829-2.828l1.767 1.768a2 2 0 1 0 2.829-2.829l-6.364-6.364a2 2 0 1 0-2.829 2.829l1.768 1.767a2 2 0 0 0-2.828 2.829z"/>`,
+  other:    `<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>`,
+}
+
+const selectedZoneType = ref('home')
+const customZoneName   = ref('')
+
+// zone preset icon component map (for template rendering)
+const ZONE_ICON_COMPONENT = {
+  home: Home, work: Briefcase, school: GraduationCap,
+  hospital: Hospital, pharmacy: Pill, park: Leaf,
+  grocery: ShoppingCart, gym: Dumbbell, other: MapPin,
+}
+
+function detectZoneType(name) {
+  const lower = (name || '').toLowerCase().trim()
+  const match = ZONE_PRESETS.find(p => p.id !== 'other' && p.label.toLowerCase() === lower)
+  return match ? match.id : 'other'
+}
+
+function buildZoneDivIcon(zoneType) {
+  const color  = ZONE_COLORS[zoneType] || ZONE_COLORS.other
+  const paths  = ZONE_SVG[zoneType]   || ZONE_SVG.other
+  const pinHtml =
+    `<div style="width:40px;height:40px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);background:${color};border:2.5px solid rgba(255,255,255,0.9);box-shadow:0 6px 20px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">`
+    + `<svg style="transform:rotate(45deg)" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="19" height="19">${paths}</svg>`
+    + `</div>`
+  return L.divIcon({
+    html: pinHtml,
+    className: '',
+    iconSize:   [40, 40],
+    iconAnchor: [20, 40],
+    popupAnchor:[0, -44],
+  })
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//                                                    map tile layer toggle
+
+const mapTileMode = ref('dark')
+let geoTileLayer = null
+
+const TILE_LAYERS = {
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© SenseWay 2026' },
+  },
+  map: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap · © CARTO' },
+  },
+  terrain: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 18, attribution: '© Esri, DeLorme, USGS' },
+  },
+}
+
+function switchTileLayer(mode) {
+  if (!map.value) return
+  // remove old tile layer
+  if (geoTileLayer) {
+    map.value.removeLayer(geoTileLayer)
+    geoTileLayer = null
+  }
+  const { url, opts } = TILE_LAYERS[mode] || TILE_LAYERS.dark
+  geoTileLayer = L.tileLayer(url, opts)
+  // insert tile layer at the bottom so markers stay on top
+  geoTileLayer.addTo(map.value)
+  geoTileLayer.bringToBack()
+  mapTileMode.value = mode
+  // force Leaflet to re-request tiles after layer swap
+  map.value.invalidateSize()
+}
+
 function showGeofenceMessage(msg, type) {
   geofenceSaveMessage.value = msg
   geofenceSaveMessageType.value = type
@@ -181,6 +293,7 @@ watch(geofenceRadius, (v) => {
 const nearestPlace = ref({
   name: '', road: '', building: '', neighbourhood: '',
   city: '', state: '', country: '', postcode: '',
+  buildingName: '', buildingType: '',
 })
 
 const nearestPlaceLabel = computed(() => {
@@ -306,13 +419,34 @@ async function fetchNearestPlace(lat, lon) {
   lastGeocodeFetch = Date.now()
   try {
     const resp = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&extratags=1&namedetails=1`,
     )
     if (!resp.ok) return
     const data = await resp.json()
     const a = data.address || {}
+    const ex = data.extratags || {}
+    // building/place name: prefer the feature name, then address amenity
+    const featureName = data.name || a.amenity || a.shop || a.leisure || a.tourism || a.office || ''
+    // human-readable building type label
+    const rawType = data.type || data.category || ''
+    const TYPE_LABELS = {
+      university: 'University', college: 'College', school: 'School',
+      hospital: 'Hospital', clinic: 'Clinic', pharmacy: 'Pharmacy',
+      library: 'Library', museum: 'Museum', park: 'Park',
+      restaurant: 'Restaurant', cafe: 'Café', fast_food: 'Fast Food',
+      supermarket: 'Supermarket', convenience: 'Convenience Store',
+      office: 'Office', commercial: 'Commercial', retail: 'Retail',
+      hotel: 'Hotel', gym: 'Gym', sports_centre: 'Sports Centre',
+      stadium: 'Stadium', theatre: 'Theatre', cinema: 'Cinema',
+      bank: 'Bank', atm: 'ATM', post_office: 'Post Office',
+      taxi: 'Taxi Stand', bus_station: 'Bus Station', railway: 'Train Station',
+      fuel: 'Gas Station', parking: 'Parking', building: 'Building',
+    }
+    const buildingType = ex['building:use'] || ex['amenity'] || TYPE_LABELS[rawType] || ''
     nearestPlace.value = {
-      name:          data.name || a.amenity || a.shop || a.leisure || a.tourism || '',
+      name:          featureName,
+      buildingName:  ex['name'] || ex['official_name'] || featureName,
+      buildingType,
       building:      a.building || (a.house_number ? a.house_number : '') || '',
       road:          a.road || a.pedestrian || a.path || a.footway || '',
       neighbourhood: a.neighbourhood || a.quarter || '',
@@ -463,10 +597,15 @@ onUnmounted(() => {
 //                                                    api fetchers
 
 async function getUserInfo(newID) {
+  const uid = (newID || '').trim()
+  if (!uid) return
   try {
-    const response = await fetch(`${url}/user?user_id=${newID}`)
+    const response = await fetch(`${url}/user?user_id=${uid}`, { credentials: 'include' })
     if (!response.ok) throw new Error(`status: ${response.status}`)
-    userInfo.value = await response.json()
+    const data = await response.json()
+    userInfo.value = data
+    // trigger home geo label fetch on first load
+    if (data.home_lat) fetchHomeGeoLabel(data.home_lat, data.home_long)
   } catch (error) {
     console.error('user info fetch failed:', error.message)
   }
@@ -517,18 +656,15 @@ function initializeOrUpdateMap(lat, lon) {
   if (!mapElement) return
 
   if (map.value) {
-    map.value.setView([lat, lon], 17)
+    // Don't reset zoom/pan — user may be zoomed in; just move the marker
     if (marker.value) marker.value.setLatLng([lat, lon])
     else marker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(map.value)
   } else {
     try {
       map.value = L.map('map').setView([lat, lon], 17)
-      // carto dark tiles for dark theme
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '<span style="color:#4f8ff7;">SenseWay © 2026</span>',
-        subdomains: 'abcd',
-        maxZoom: 19,
-      }).addTo(map.value)
+      const { url, opts } = TILE_LAYERS[mapTileMode.value] || TILE_LAYERS.dark
+      geoTileLayer = L.tileLayer(url, opts).addTo(map.value)
+      geoTileLayer.bringToBack()
       marker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(map.value)
     } catch (err) {
       console.error('map init failed:', err)
@@ -551,7 +687,7 @@ function initMiniMap(lat, lon) {
   if (!el) return
 
   if (mapMini.value) {
-    mapMini.value.setView([lat, lon], 15)
+    mapMini.value.setView([lat, lon], 15, { animate: false })
     if (miniMarker.value) miniMarker.value.setLatLng([lat, lon])
     else miniMarker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(mapMini.value)
   } else {
@@ -566,7 +702,8 @@ function initMiniMap(lat, lon) {
         boxZoom: false,
         keyboard: false,
         touchZoom: false,
-      }).setView([lat, lon], 15)
+        zoomAnimation: false,
+      }).setView([lat, lon], 15, { animate: false })
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 19,
@@ -598,6 +735,10 @@ function clearAllGeofenceLayers() {
     if (map.value && layer) map.value.removeLayer(layer)
   })
   geofenceLayers.clear()
+  geofenceIconLayers.forEach((m) => {
+    if (map.value && m) map.value.removeLayer(m)
+  })
+  geofenceIconLayers.clear()
 }
 
 function resetGeofenceDraft() {
@@ -605,7 +746,9 @@ function resetGeofenceDraft() {
   geofence.value = null
   selectedGeofenceId.value = null
   geofenceRadius.value = 100
-  geofenceName.value = 'Geofence'
+  selectedZoneType.value = 'home'
+  customZoneName.value = ''
+  geofenceName.value = 'Home'
 }
 
 function upsertGeofenceInState(saved) {
@@ -634,13 +777,27 @@ function buildGeofencePopupHTML(fence) {
   `
 }
 
+// auto-populate name when preset changes
+watch(selectedZoneType, (type) => {
+  if (type !== 'other') {
+    const preset = ZONE_PRESETS.find(p => p.id === type)
+    if (preset) geofenceName.value = preset.label
+  }
+  // update the marker icon live if marker is already placed
+  if (geofenceMarker.value && map.value) {
+    geofenceMarker.value.setIcon(buildZoneDivIcon(type))
+  }
+})
+
 function applyGeofenceDraft(latlng) {
   if (!map.value) return
+  const icon = buildZoneDivIcon(selectedZoneType.value)
   if (!geofenceMarker.value) {
-    geofenceMarker.value = L.marker(latlng, { draggable: true }).addTo(map.value)
+    geofenceMarker.value = L.marker(latlng, { icon, draggable: true }).addTo(map.value)
     geofenceMarker.value.on('drag', (e) => updateGeofenceCircle(e.target.getLatLng()))
   } else {
     geofenceMarker.value.setLatLng(latlng)
+    geofenceMarker.value.setIcon(icon)
   }
   updateGeofenceCircle(latlng)
 }
@@ -669,6 +826,9 @@ function updateRadius() {
   if (geofenceCircle.value) geofenceCircle.value.setRadius(geofenceRadius.value)
 }
 
+// track saved-fence icon markers separately
+const geofenceIconLayers = new Map()
+
 function renderGeofencesOnMap() {
   if (!map.value) return
   const knownIds = new Set(geofences.value.map((item) => item.id))
@@ -678,18 +838,34 @@ function renderGeofencesOnMap() {
       geofenceLayers.delete(layerId)
     }
   })
+  geofenceIconLayers.forEach((m, layerId) => {
+    if (!knownIds.has(layerId)) {
+      if (map.value) map.value.removeLayer(m)
+      geofenceIconLayers.delete(layerId)
+    }
+  })
   geofences.value.forEach((fence) => {
     if (!fence?.id) return
     const prev = geofenceLayers.get(fence.id)
     if (prev && map.value) map.value.removeLayer(prev)
+    const prevIcon = geofenceIconLayers.get(fence.id)
+    if (prevIcon && map.value) map.value.removeLayer(prevIcon)
     const isSelected = selectedGeofenceId.value === fence.id
+    const zoneType = detectZoneType(fence.name)
+    const zoneColor = ZONE_COLORS[zoneType] || ZONE_COLORS.other
     const layer = L.circle([fence.latitude, fence.longitude], {
       radius: Number(fence.radius),
-      color: isSelected ? '#f97316' : '#4ade80',
-      fillColor: isSelected ? '#fb923c' : '#4ade80',
-      fillOpacity: 0.18,
+      color: isSelected ? '#f97316' : zoneColor,
+      fillColor: isSelected ? '#fb923c' : zoneColor,
+      fillOpacity: 0.15,
       weight: isSelected ? 3 : 2,
     }).addTo(map.value)
+    // center icon marker
+    const iconMarker = L.marker([fence.latitude, fence.longitude], {
+      icon: buildZoneDivIcon(zoneType),
+      interactive: false,
+    }).addTo(map.value)
+    geofenceIconLayers.set(fence.id, iconMarker)
     layer.bindPopup(buildGeofencePopupHTML(fence))
     layer.on('click', () => selectExistingGeofence(fence.id, false))
     layer.on('popupopen', () => {
@@ -708,7 +884,11 @@ function selectExistingGeofence(fenceId, closePopup = false) {
   selectedGeofenceId.value = selected.id
   geofence.value = { ...selected }
   geofenceRadius.value = Number(selected.radius)
-  geofenceName.value = selected.name || 'Geofence'
+  geofenceName.value = selected.name || 'Home'
+  const detectedType = detectZoneType(selected.name)
+  selectedZoneType.value = detectedType
+  if (detectedType === 'other') customZoneName.value = selected.name || ''
+  else customZoneName.value = ''
   applyGeofenceDraft({ lat: selected.latitude, lng: selected.longitude })
   renderGeofencesOnMap()
   if (closePopup) geofenceLayers.get(selected.id)?.closePopup()
@@ -719,11 +899,12 @@ function selectExistingGeofence(fenceId, closePopup = false) {
 //                                                    geofence: crud
 
 async function fetchGeofences() {
-  if (!id.value) return
-  console.log('[fetchGeofences] user id:', id.value)
+  const userId = (id.value || '').trim()
+  if (!userId) return
+  console.log('[fetchGeofences] user id:', userId)
   geofenceLoading.value = true
   try {
-    const result = await listGeofences(id.value)
+    const result = await listGeofences(userId)
     geofences.value = Array.isArray(result)
       ? result.map((item) => ({ ...item, radius: Number(item.radius) }))
       : []
@@ -759,9 +940,12 @@ async function saveGeofence() {
     return
   }
   const geofenceId = geofence.value?.id
+  const finalName = selectedZoneType.value === 'other'
+    ? normalizeGeofenceName(customZoneName.value)
+    : normalizeGeofenceName(geofenceName.value)
   const payload = {
     user_id: id.value,
-    name: normalizeGeofenceName(geofenceName.value),
+    name: finalName,
     enabled: true,
     latitude: markerLatLng.lat,
     longitude: markerLatLng.lng,
@@ -895,12 +1079,13 @@ onUnmounted(() => {
   if (geofenceMessageTimer) clearTimeout(geofenceMessageTimer)
   clearGeofenceDraftLayers()
   clearAllGeofenceLayers()
-  if (map.value) { map.value.remove(); map.value = null }
-  if (mapMini.value) { mapMini.value.remove(); mapMini.value = null }
+  if (map.value) { try { map.value.stop(); map.value.remove() } catch(_) {} map.value = null }
+  if (mapMini.value) { try { mapMini.value.stop(); mapMini.value.remove() } catch(_) {} mapMini.value = null }
   marker.value = null
   miniMarker.value = null
   geofence.value = null
   geofences.value = []
+  geoTileLayer = null
   if (topoAnimFrame) cancelAnimationFrame(topoAnimFrame)
 })
 
@@ -1407,6 +1592,14 @@ watch(
                   <span class="loc-detail-key"><Mountain :size="10" class="loc-dk-icon" /> Elevation</span>
                   <span class="loc-detail-val">{{ weatherData.elevation }} m</span>
                 </div>
+                <!-- nearest building / place -->
+                <div v-if="nearestPlace.name" class="loc-detail-item loc-detail-item--building">
+                  <span class="loc-detail-key"><Building2 :size="10" class="loc-dk-icon" /> Nearest Place</span>
+                  <span class="loc-detail-val loc-building-val">
+                    <span class="loc-building-name">{{ nearestPlace.name }}</span>
+                    <span v-if="nearestPlace.buildingType" class="loc-building-type">{{ nearestPlace.buildingType }}</span>
+                  </span>
+                </div>
                 <!-- coordinates -->
                 <div class="loc-detail-item">
                   <span class="loc-detail-key"><MapPin :size="10" class="loc-dk-icon" /> Coordinates</span>
@@ -1569,6 +1762,21 @@ watch(
 
             <!-- full map panel -->
             <div class="gf-map-panel">
+              <div class="gf-map-toolbar">
+                <span class="gf-map-title">
+                  <Layers :size="14" />
+                  Safety Zone Map
+                </span>
+                <div class="map-layer-toggle">
+                  <button
+                    v-for="m in [{ id:'dark', label:'Dark' }, { id:'map', label:'Map' }, { id:'terrain', label:'Terrain' }]"
+                    :key="m.id"
+                    :class="['mlt-btn', { 'mlt-btn--active': mapTileMode === m.id }]"
+                    @click="switchTileLayer(m.id)"
+                    type="button"
+                  >{{ m.label }}</button>
+                </div>
+              </div>
               <div id="map" class="full-map"></div>
             </div>
 
@@ -1583,9 +1791,41 @@ watch(
               </div>
 
               <div class="gf-form">
+                <!-- zone type preset picker -->
                 <div class="field">
-                  <label class="field-label">Zone Name</label>
-                  <input v-model.trim="geofenceName" type="text" maxlength="60" class="field-input" placeholder="e.g. Home perimeter" />
+                  <label class="field-label">Zone Type</label>
+                  <div class="zone-preset-grid">
+                    <button
+                      v-for="preset in ZONE_PRESETS"
+                      :key="preset.id"
+                      :class="['zone-preset-btn', { 'zone-preset-btn--active': selectedZoneType === preset.id }]"
+                      :style="selectedZoneType === preset.id ? { '--pcolor': ZONE_COLORS[preset.id] } : {}"
+                      @click="selectedZoneType = preset.id"
+                      type="button"
+                    >
+                      <component :is="ZONE_ICON_COMPONENT[preset.id]" :size="14" />
+                      <span>{{ preset.label }}</span>
+                    </button>
+                  </div>
+                </div>
+                <!-- custom name when "other" or for override -->
+                <div class="field">
+                  <label class="field-label">
+                    Zone Name
+                    <span v-if="selectedZoneType !== 'other'" class="field-optional">(or type a custom name)</span>
+                  </label>
+                  <input
+                    v-if="selectedZoneType === 'other'"
+                    v-model.trim="customZoneName"
+                    @input="geofenceName = customZoneName || 'Zone'"
+                    type="text" maxlength="60" class="field-input" placeholder="e.g. My place"
+                  />
+                  <input
+                    v-else
+                    v-model.trim="geofenceName"
+                    type="text" maxlength="60" class="field-input"
+                    :placeholder="ZONE_PRESETS.find(p => p.id === selectedZoneType)?.label || 'Zone'"
+                  />
                 </div>
                 <div class="field">
                   <div class="field-label-row">
@@ -3757,4 +3997,132 @@ watch(
 }
 .edit-form-btns .btn-ghost { flex: 1; }
 .edit-form-btns .btn-primary { flex: 2; }
+
+/* ── nearest building row ── */
+.loc-detail-item--building .loc-detail-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  white-space: normal;
+}
+
+.loc-building-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.loc-building-type {
+  font-size: 10px;
+  color: #4f8ff7;
+  font-weight: 500;
+  background: rgba(79,143,247,0.1);
+  border: 1px solid rgba(79,143,247,0.2);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* ── zone preset picker ── */
+.zone-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.zone-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: rgba(255,255,255,0.03);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+  font-family: inherit;
+  text-align: center;
+}
+
+.zone-preset-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.zone-preset-btn--active {
+  background: color-mix(in srgb, var(--pcolor, #4f8ff7) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pcolor, #4f8ff7) 50%, transparent);
+  color: var(--pcolor, #4f8ff7);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pcolor, #4f8ff7) 25%, transparent);
+}
+
+/* ── map toolbar (layer toggle) ── */
+.gf-map-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.gf-map-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(8,8,16,0.82);
+  backdrop-filter: blur(8px);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  font-size: 12px;
+  font-weight: 600;
+  color: #c8c8d8;
+  pointer-events: auto;
+}
+
+.map-layer-toggle {
+  display: flex;
+  gap: 4px;
+  background: rgba(8,8,16,0.82);
+  backdrop-filter: blur(8px);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 4px;
+  pointer-events: auto;
+}
+
+.mlt-btn {
+  padding: 5px 11px;
+  border-radius: 7px;
+  border: none;
+  background: none;
+  color: #c8c8d8;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.mlt-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+.mlt-btn--active {
+  background: #4f8ff7;
+  color: #fff;
+}
+
+/* ensure map panel is position:relative so toolbar can use absolute positioning */
+.gf-map-panel {
+  position: relative;
+}
 </style>
