@@ -3,6 +3,29 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
+const REVIEWS = [
+  { name: 'Priya Sharma',       handle: 'Toronto, ON',      body: 'My father uses the smart cane every day. The real-time alerts give our whole family peace of mind. A true life saver.' },
+  { name: 'August Zhang',       handle: 'Richmond Hill, ON', body: 'My grandfather was hesitant about technology but SenseWay changed everything. We helped him set it up in minutes and now he loves his independence.' },
+  { name: 'Fatima Malik',       handle: 'Brampton, ON',     body: 'As a caregiver I can monitor my patients remotely. The geofencing zones are so smart and easy to set up.' },
+  { name: 'Sarah Mitchell',     handle: 'Vancouver, BC',    body: 'Bought this for my dad after his hip surgery. The location tracking means I can stop worrying and he can feel free again.' },
+  { name: 'Kavya Jayasinghe',   handle: 'Scarborough, ON',  body: 'My aththamma uses this cane every morning walk. The SOS button gave us so much peace of mind — worth every penny.' },
+  { name: 'Ravi Krishnamurthy', handle: 'Ottawa, ON',       body: 'We gifted this to my amma and she loves it. Knowing her location always gives the family so much comfort.' },
+  { name: 'Wei-Lin Chen',       handle: 'Markham, ON',      body: 'I recommended SenseWay to three other families in our community. The geofencing alerts are incredibly reliable.' },
+  { name: 'Arjun Nair',         handle: 'Mississauga, ON',  body: 'The fall detection saved my grandfather from being alone for hours. SenseWay is incredible technology.' },
+  { name: 'Emma Thompson',      handle: 'Calgary, AB',      body: 'Simple, reliable, life-changing. Dad has more confidence on his walks and I have less anxiety. Can\'t ask for more.' },
+  { name: 'Niroshan Perera',    handle: 'Etobicoke, ON',    body: 'Thaaththaa was afraid of falling alone. With SenseWay I check on him every day from my phone — it truly changed our family\'s life.' },
+  { name: 'Gurpreet Singh',     handle: 'Surrey, BC',       body: 'My nana was skeptical at first but now refuses to go anywhere without it. The app is very simple to use.' },
+  { name: 'Liang Wei',          handle: 'Burnaby, BC',      body: 'The heart rate monitoring and location history features are outstanding. My mother walks daily now with full confidence.' },
+  { name: 'Meera Chandran',     handle: 'Hamilton, ON',     body: 'As a doctor I recommend SenseWay to every elderly patient\'s family. The health monitoring is first-class.' },
+  { name: 'James O\'Brien',     handle: 'Halifax, NS',      body: 'Set up took under 10 minutes. The battery life is amazing and the alerts are instant. My mum loves her independence back.' },
+  { name: 'Dilrukshi Wijesinghe', handle: 'Mississauga, ON', body: 'After amma\'s stroke we were so worried. SenseWay gave us real-time safety and her the freedom she deserved.' },
+  { name: 'Ananya Venkatesh',   handle: 'Brampton, ON',     body: 'We set up safety zones around the neighbourhood. The instant geofence alerts are a game changer for our family.' },
+  { name: 'Michael Clarke',     handle: 'Toronto, ON',      body: 'Clean design, rock-solid reliability. The SOS feature gave my father confidence to walk on his own again.' },
+  { name: 'Xiao-Ming Liu',      handle: 'Scarborough, ON',  body: 'Yéye walks to the park every morning and we track him in real time. SenseWay is essential for our family.' },
+]
+const row1 = REVIEWS.slice(0, 9)
+const row2 = REVIEWS.slice(9)
+
 const authStore = useAuthStore()
 const router = useRouter()
 
@@ -52,6 +75,41 @@ const handleLogin = async () => {
         We know where<br />
         you're going.
       </div>
+
+      <!-- testimonial marquee -->
+      <div class="marquee-section">
+        <div class="marquee-fade-left"></div>
+        <div class="marquee-fade-right"></div>
+        <div class="marquee-row">
+          <div class="marquee-track marquee-track--fwd">
+            <div v-for="r in [...row1, ...row1]" :key="r.name + r.handle" class="review-card">
+              <p class="review-body">{{ r.body }}</p>
+              <div class="review-author">
+                <div class="review-avatar">{{ r.name[0] }}</div>
+                <div>
+                  <div class="review-name">{{ r.name }}</div>
+                  <div class="review-handle">{{ r.handle }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="marquee-row">
+          <div class="marquee-track marquee-track--rev">
+            <div v-for="r in [...row2, ...row2]" :key="r.name + r.handle + '2'" class="review-card">
+              <p class="review-body">{{ r.body }}</p>
+              <div class="review-author">
+                <div class="review-avatar">{{ r.name[0] }}</div>
+                <div>
+                  <div class="review-name">{{ r.name }}</div>
+                  <div class="review-handle">{{ r.handle }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="login-left-foot">SenseWay™ © 2026 · Non-Profit</div>
     </div>
 
@@ -147,6 +205,8 @@ const handleLogin = async () => {
   flex-direction: column;
   justify-content: space-between;
   padding: 40px 48px;
+  overflow: hidden;
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
@@ -414,4 +474,93 @@ const handleLogin = async () => {
   margin-left: 4px;
 }
 .link-btn:hover { text-decoration: underline; }
+
+/* ── testimonial marquee ── */
+.marquee-section {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 24px -48px;
+  padding: 0 0;
+}
+.marquee-fade-left,
+.marquee-fade-right {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 80px;
+  z-index: 2;
+  pointer-events: none;
+}
+.marquee-fade-left  { left: 0;  background: linear-gradient(to right, #060610, transparent); }
+.marquee-fade-right { right: 0; background: linear-gradient(to left, #060610, transparent); }
+
+.marquee-row { overflow: hidden; }
+
+.marquee-track {
+  display: flex;
+  gap: 12px;
+  width: max-content;
+}
+.marquee-track--fwd { animation: marquee-fwd 38s linear infinite; }
+.marquee-track--rev { animation: marquee-rev 42s linear infinite; }
+.marquee-track--fwd:hover,
+.marquee-track--rev:hover { animation-play-state: paused; }
+
+@keyframes marquee-fwd {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes marquee-rev {
+  from { transform: translateX(-50%); }
+  to   { transform: translateX(0); }
+}
+
+.review-card {
+  width: 220px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 14px 16px;
+  transition: border-color 0.2s;
+}
+.review-card:hover { border-color: rgba(79,143,247,0.25); }
+.review-body {
+  font-size: 12px;
+  color: rgba(200,200,216,0.75);
+  line-height: 1.55;
+  margin: 0 0 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.review-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.review-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f8ff7, #a855f7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.review-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #e2e2f0;
+}
+.review-handle {
+  font-size: 10px;
+  color: rgba(200,200,216,0.45);
+}
 </style>

@@ -16,6 +16,25 @@ const vClickOutside = {
   },
 }
 
+// ── spotlight card directive ──
+const vSpotlight = {
+  mounted(el) {
+    el.__spotMouse = (e) => {
+      const rect = el.getBoundingClientRect()
+      el.style.setProperty('--sx', (e.clientX - rect.left) + 'px')
+      el.style.setProperty('--sy', (e.clientY - rect.top) + 'px')
+      el.style.setProperty('--so', '1')
+    }
+    el.__spotLeave = () => el.style.setProperty('--so', '0')
+    el.addEventListener('mousemove', el.__spotMouse)
+    el.addEventListener('mouseleave', el.__spotLeave)
+  },
+  unmounted(el) {
+    el.removeEventListener('mousemove', el.__spotMouse)
+    el.removeEventListener('mouseleave', el.__spotLeave)
+  },
+}
+
 // ── visual enhancement state ──
 const isLoading = ref(true)
 const topoCanvasRef = ref(null)
@@ -61,6 +80,7 @@ const activeTab = ref('dashboard')
 const pageTitle = computed(() => {
   if (activeTab.value === 'dashboard') return 'Dashboard'
   if (activeTab.value === 'geofence') return 'Safety Zones'
+  if (activeTab.value === 'events') return 'Events'
   if (activeTab.value === 'settings') return 'Settings'
   return 'SenseWay'
 })
@@ -68,13 +88,15 @@ const pageTitle = computed(() => {
 function setTab(tab) {
   activeTab.value = tab
   nextTick(() => {
-    // fix leaflet tile rendering after tabs become visible
     if (tab === 'geofence' && map.value) {
       map.value.invalidateSize()
       renderGeofencesOnMap()
     }
     if (tab === 'dashboard' && mapMini.value) {
       mapMini.value.invalidateSize()
+    }
+    if (tab === 'events' && id.value) {
+      getEvents(id.value)
     }
   })
 }
@@ -153,6 +175,8 @@ const geofenceSaving = ref(false)
 const geofenceDeleting = ref(false)
 const geofenceSaveMessage = ref('')
 const geofenceSaveMessageType = ref('')
+// add-zone mode: map clicks only place a marker when this is true
+const addZoneMode = ref(false)
 
 let geofenceMessageTimer = null
 
@@ -239,16 +263,39 @@ let geoTileLayer = null
 const TILE_LAYERS = {
   dark: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© SenseWay 2026' },
+    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© SenseWay 2026', updateWhenIdle: true, keepBuffer: 2 },
   },
   map: {
     url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap · © CARTO' },
+    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap · © CARTO', updateWhenIdle: true, keepBuffer: 2 },
   },
-  terrain: {
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    opts: { maxZoom: 18, attribution: '© Esri, DeLorme, USGS' },
-  },
+}
+
+function playZoneSaveSound() {
+  try {
+    const ctx = new (window.AudioContext || window['webkitAudioContext'])()
+    // gentle ascending chime: C5 → E5 → G5
+    const notes = [523.25, 659.25, 783.99]
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      const t = ctx.currentTime + i * 0.12
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45)
+      osc.start(t); osc.stop(t + 0.5)
+    })
+  } catch (_) {}
+}
+
+function openGoogleMaps() {
+  const lat = status.value?.latitude
+  const lon = status.value?.longitude
+  if (lat == null || lon == null) return
+  window.open(`https://www.google.com/maps?q=${lat},${lon}`, '_blank', 'noopener')
 }
 
 function switchTileLayer(mode) {
@@ -280,10 +327,10 @@ function showGeofenceMessage(msg, type) {
   }
 }
 
-// clamp radius between 50m and 5km
+// clamp radius between 25m and 1km
 watch(geofenceRadius, (v) => {
-  if (v < 50) geofenceRadius.value = 50
-  else if (v > 5000) geofenceRadius.value = 5000
+  if (v < 25) geofenceRadius.value = 25
+  else if (v > 1000) geofenceRadius.value = 1000
 })
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -307,21 +354,31 @@ const locationShort = computed(() => {
   return [city, country].filter(Boolean).join(', ')
 })
 
-// iso country code badge (more reliable than emoji on windows)
+// country flag badge — uses Wikimedia flag SVGs for known countries, falls back to ISO text
+const FLAG_URLS = {
+  CA: 'https://upload.wikimedia.org/wikipedia/commons/d/d9/Flag_of_Canada_%28Pantone%29.svg',
+  US: 'https://upload.wikimedia.org/wikipedia/en/a/a4/Flag_of_the_United_States.svg',
+  MX: 'https://upload.wikimedia.org/wikipedia/commons/f/f3/Flag_of_Mexico.svg',
+  GB: 'https://upload.wikimedia.org/wikipedia/en/a/ae/Flag_of_the_United_Kingdom.svg',
+  AU: 'https://upload.wikimedia.org/wikipedia/en/b/b9/Flag_of_Australia.svg',
+  IN: 'https://upload.wikimedia.org/wikipedia/en/4/41/Flag_of_India.svg',
+  FR: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg',
+  DE: 'https://upload.wikimedia.org/wikipedia/en/b/ba/Flag_of_Germany.svg',
+}
 const countryCode = computed(() => {
   const c = (nearestPlace.value.country || '').toLowerCase()
-  if (c.includes('canada'))        return { code: 'CA', color: '#d52b1e' }
-  if (c.includes('united states') || c.includes('usa')) return { code: 'US', color: '#3c3b6e' }
-  if (c.includes('mexico'))        return { code: 'MX', color: '#006847' }
-  if (c.includes('cuba'))          return { code: 'CU', color: '#002a8f' }
-  if (c.includes('bahamas'))       return { code: 'BS', color: '#00778b' }
-  if (c.includes('jamaica'))       return { code: 'JM', color: '#000000' }
-  if (c.includes('haiti'))         return { code: 'HT', color: '#00209f' }
-  if (c.includes('dominican'))     return { code: 'DO', color: '#002d62' }
-  if (c.includes('puerto rico'))   return { code: 'PR', color: '#ed0000' }
-  if (c.includes('greenland'))     return { code: 'GL', color: '#003f87' }
-  if (c.includes('belize'))        return { code: 'BZ', color: '#003f87' }
-  if (c.includes('guatemala'))     return { code: 'GT', color: '#4997d0' }
+  if (c.includes('canada'))                               return { code: 'CA', color: '#d52b1e', flag: FLAG_URLS.CA }
+  if (c.includes('united states') || c.includes('usa'))  return { code: 'US', color: '#3c3b6e', flag: FLAG_URLS.US }
+  if (c.includes('mexico'))                              return { code: 'MX', color: '#006847', flag: FLAG_URLS.MX }
+  if (c.includes('united kingdom') || c.includes('great britain')) return { code: 'GB', color: '#012169', flag: FLAG_URLS.GB }
+  if (c.includes('australia'))                           return { code: 'AU', color: '#00008b', flag: FLAG_URLS.AU }
+  if (c.includes('india'))                               return { code: 'IN', color: '#ff9933', flag: FLAG_URLS.IN }
+  if (c.includes('france'))                              return { code: 'FR', color: '#002395', flag: FLAG_URLS.FR }
+  if (c.includes('germany') || c.includes('deutschland')) return { code: 'DE', color: '#000000', flag: FLAG_URLS.DE }
+  if (c.includes('cuba'))                                return { code: 'CU', color: '#002a8f', flag: null }
+  if (c.includes('bahamas'))                             return { code: 'BS', color: '#00778b', flag: null }
+  if (c.includes('jamaica'))                             return { code: 'JM', color: '#000000', flag: null }
+  if (c.includes('greenland'))                           return { code: 'GL', color: '#003f87', flag: null }
   return null
 })
 
@@ -509,6 +566,55 @@ const isAlertEvent = (event) => {
   return type.includes('fall') || type.includes('sos') || name.includes('fall') || name.includes('sos')
 }
 
+// ── haversine distance (metres) ──
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000
+  const toRad = (d) => d * Math.PI / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// ── current geofence status ──
+const currentGeofenceStatus = computed(() => {
+  const lat = status.value?.latitude
+  const lon = status.value?.longitude
+  if (!lat || !lon || (lat === 0 && lon === 0)) return null
+  if (!geofences.value.length) return { inside: false, fence: null, distance: null }
+  let nearest = null, nearestDist = Infinity
+  for (const fence of geofences.value) {
+    const dist = haversineDistance(lat, lon, fence.latitude, fence.longitude)
+    if (dist <= Number(fence.radius)) return { inside: true, fence, distance: Math.round(dist) }
+    if (dist < nearestDist) { nearestDist = dist; nearest = fence }
+  }
+  return { inside: false, fence: nearest, distance: Math.round(nearestDist) }
+})
+
+// ── events tab stats ──
+const eventStats = computed(() => {
+  const all = events.value
+  const counts = {}
+  all.forEach(e => {
+    const t = e.type || 'Unknown'
+    counts[t] = (counts[t] || 0) + 1
+  })
+  const sos = all.filter(e => (e.type || '').toLowerCase().includes('sos') || (e.name || '').toLowerCase().includes('sos')).length
+  const fall = all.filter(e => (e.type || '').toLowerCase().includes('fall') || (e.name || '').toLowerCase().includes('fall')).length
+  const battery = all.filter(e => (e.type || '').toLowerCase().includes('battery')).length
+  const geofenceEvts = all.filter(e => (e.type || '').toLowerCase().includes('geofence')).length
+  const other = all.length - sos - fall - battery - geofenceEvts
+  const breakdown = [
+    { label: 'SOS',       count: sos,          color: '#ef4444' },
+    { label: 'Fall',      count: fall,         color: '#f97316' },
+    { label: 'Battery',   count: battery,      color: '#f59e0b' },
+    { label: 'Geofence',  count: geofenceEvts, color: '#4f8ff7' },
+    { label: 'Other',     count: Math.max(0, other), color: '#71717a' },
+  ].filter(b => b.count > 0)
+  const maxCount = Math.max(...breakdown.map(b => b.count), 1)
+  return { total: all.length, sos, fall, battery, geofenceEvts, breakdown, maxCount, counts }
+})
+
 const heartImages = [
   'https://i.gyazo.com/7c390eaaf22543c97e2fec0524e27afa.png',
   'https://i.gyazo.com/ce05866c1ded35069062c8fe4bec1a0a.png',
@@ -614,7 +720,7 @@ async function getUserInfo(newID) {
 async function getEvents(currentId) {
   if (!currentId) return
   try {
-    const response = await fetch(`${url}/events?user_id=${currentId}&quantity=10`)
+    const response = await fetch(`${url}/events?user_id=${currentId}&quantity=100`)
     if (!response.ok) throw new Error(`status: ${response.status}`)
     const data = await response.json()
     events.value = data.map((e) => ({
@@ -661,7 +767,7 @@ function initializeOrUpdateMap(lat, lon) {
     else marker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(map.value)
   } else {
     try {
-      map.value = L.map('map').setView([lat, lon], 17)
+      map.value = L.map('map', { preferCanvas: true }).setView([lat, lon], 17)
       const { url, opts } = TILE_LAYERS[mapTileMode.value] || TILE_LAYERS.dark
       geoTileLayer = L.tileLayer(url, opts).addTo(map.value)
       geoTileLayer.bringToBack()
@@ -749,6 +855,7 @@ function resetGeofenceDraft() {
   selectedZoneType.value = 'home'
   customZoneName.value = ''
   geofenceName.value = 'Home'
+  addZoneMode.value = false
 }
 
 function upsertGeofenceInState(saved) {
@@ -803,10 +910,26 @@ function applyGeofenceDraft(latlng) {
 }
 
 function handleMapClick(e) {
+  if (!addZoneMode.value) return
   if (geofenceSaving.value || geofenceDeleting.value) return
   geofenceSaveMessage.value = ''
   geofenceSaveMessageType.value = ''
   applyGeofenceDraft(e.latlng)
+  // auto-exit add mode once marker placed
+  addZoneMode.value = false
+}
+
+function enterAddZoneMode() {
+  // reset any existing draft when starting fresh
+  clearGeofenceDraftLayers()
+  geofence.value = null
+  selectedGeofenceId.value = null
+  geofenceRadius.value = 100
+  selectedZoneType.value = 'home'
+  customZoneName.value = ''
+  geofenceName.value = 'Home'
+  addZoneMode.value = true
+  renderGeofencesOnMap()
 }
 
 function updateGeofenceCircle(latlng) {
@@ -963,12 +1086,35 @@ async function saveGeofence() {
     upsertGeofenceInState(geofence.value)
     renderGeofencesOnMap()
     showGeofenceMessage(geofenceId ? 'Zone updated successfully.' : 'Zone saved successfully.', 'success')
+    playZoneSaveSound()
   } catch (error) {
     const msg = error?.message || 'unknown error'
     showGeofenceMessage(`Failed to save: ${msg}`, 'error')
     console.error('saveGeofence failed:', error)
   } finally {
     geofenceSaving.value = false
+  }
+}
+
+async function deleteAllGeofences() {
+  if (!id.value || geofenceDeleting.value || geofenceSaving.value) return
+  const all = [...geofences.value]
+  if (!all.length) return
+  geofenceDeleting.value = true
+  geofenceSaveMessage.value = ''
+  try {
+    await Promise.all(all.map(f => deleteGeofenceApi(f.id, id.value)))
+    clearAllGeofenceLayers()
+    clearGeofenceDraftLayers()
+    geofences.value = []
+    geofence.value = null
+    selectedGeofenceId.value = null
+    addZoneMode.value = false
+    showGeofenceMessage('All zones deleted.', 'success')
+  } catch (error) {
+    showGeofenceMessage('Failed to delete all zones.', 'error')
+  } finally {
+    geofenceDeleting.value = false
   }
 }
 
@@ -1153,16 +1299,16 @@ onMounted(() => {
     else clearInterval(tw)
   }, 55)
 
-  // progress bar fills over 5.8 s
+  // progress bar fills over 2.8 s
   const t0 = Date.now()
   const prog = setInterval(() => {
     const elapsed = Date.now() - t0
-    loadingProgress.value = Math.min((elapsed / 5800) * 100, 100)
+    loadingProgress.value = Math.min((elapsed / 2800) * 100, 100)
     if (loadingProgress.value >= 100) clearInterval(prog)
   }, 40)
 
-  // hide loading screen after 6 s
-  setTimeout(() => { isLoading.value = false }, 6000)
+  // hide loading screen after 3 s
+  setTimeout(() => { isLoading.value = false }, 3000)
 })
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1436,6 +1582,13 @@ watch(
           <span class="nav-label">Zones</span>
         </button>
 
+        <button :class="['nav-btn', { 'nav-btn--active': activeTab === 'events' }]" @click="setTab('events')" title="Events">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          <span class="nav-label">Events</span>
+        </button>
+
         <button :class="['nav-btn', { 'nav-btn--active': activeTab === 'settings' }]" @click="setTab('settings')" title="Settings">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
@@ -1485,7 +1638,10 @@ watch(
                   <span class="tb-loc-ring"></span>
                   <span class="tb-loc-dot"></span>
                 </span>
-                <span v-if="countryCode" class="tb-loc-country" :style="{ background: countryCode.color }">{{ countryCode.code }}</span>
+                <span v-if="countryCode" class="tb-loc-country" :style="countryCode.flag ? {} : { background: countryCode.color }">
+                  <img v-if="countryCode.flag" :src="countryCode.flag" class="flag-img" :alt="countryCode.code" />
+                  <span v-else>{{ countryCode.code }}</span>
+                </span>
                 <span class="tb-loc-text">{{ locationShort }}</span>
               </div>
             </template>
@@ -1541,7 +1697,7 @@ watch(
           <div class="dash-grid">
 
             <!-- mini map + location details -->
-            <div class="card card-map">
+            <div v-spotlight class="card card-map">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -1559,10 +1715,17 @@ watch(
                   <span class="loc-ring"></span>
                   <span class="loc-dot-inner"></span>
                 </span>
-                <span v-if="countryCode" class="loc-country-code" :style="{ background: countryCode.color }">{{ countryCode.code }}</span>
+                <span v-if="countryCode" class="loc-country-code" :style="countryCode.flag ? {} : { background: countryCode.color }">
+                  <img v-if="countryCode.flag" :src="countryCode.flag" class="flag-img" :alt="countryCode.code" />
+                  <span v-else>{{ countryCode.code }}</span>
+                </span>
                 <span class="loc-address-text">
                   {{ [nearestPlace.name, nearestPlace.road, nearestPlace.city, nearestPlace.country].filter(Boolean).join(', ') || '—' }}
                 </span>
+                <button class="gmaps-btn" @click="openGoogleMaps" title="Open in Google Maps" type="button">
+                  <img src="https://www.google.com/favicon.ico" class="gmaps-icon" alt="" />
+                  Open in Maps
+                </button>
               </div>
 
               <!-- location detail grid -->
@@ -1605,6 +1768,23 @@ watch(
                   <span class="loc-detail-key"><MapPin :size="10" class="loc-dk-icon" /> Coordinates</span>
                   <span class="loc-detail-val">{{ status.latitude?.toFixed(5) }}, {{ status.longitude?.toFixed(5) }}</span>
                 </div>
+              </div>
+
+              <!-- geofence status strip -->
+              <div v-if="currentGeofenceStatus" :class="['gf-status-strip', currentGeofenceStatus.inside ? 'gf-status-strip--in' : 'gf-status-strip--out']">
+                <div class="gf-status-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
+                </div>
+                <div class="gf-status-text">
+                  <span v-if="currentGeofenceStatus.inside" class="gf-status-label">Within Safe Zone</span>
+                  <span v-else class="gf-status-label">Outside All Safe Zones</span>
+                  <span v-if="currentGeofenceStatus.fence" class="gf-status-sub">
+                    <template v-if="currentGeofenceStatus.inside">{{ currentGeofenceStatus.fence.name }} · {{ currentGeofenceStatus.distance }}m from centre</template>
+                    <template v-else>Nearest: {{ currentGeofenceStatus.fence.name }} ({{ currentGeofenceStatus.distance }}m away)</template>
+                  </span>
+                  <span v-else class="gf-status-sub">No zones configured yet</span>
+                </div>
+                <div class="gf-status-dot" :class="currentGeofenceStatus.inside ? 'gf-status-dot--in' : 'gf-status-dot--out'"></div>
               </div>
 
               <!-- weather strip -->
@@ -1652,7 +1832,7 @@ watch(
             <!-- metrics column -->
             <div class="metrics-col">
               <!-- battery -->
-              <div class="card metric-card">
+              <div v-spotlight class="card metric-card">
                 <div class="card-head">
                   <div class="card-head-left">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
@@ -1671,7 +1851,7 @@ watch(
               </div>
 
               <!-- heart rate -->
-              <div class="card metric-card">
+              <div v-spotlight class="card metric-card">
                 <div class="card-head">
                   <div class="card-head-left">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
@@ -1694,7 +1874,7 @@ watch(
             </div>
 
             <!-- profile card -->
-            <div class="card card-profile">
+            <div v-spotlight class="card card-profile">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
@@ -1719,7 +1899,7 @@ watch(
             </div>
 
             <!-- events card -->
-            <div class="card card-events">
+            <div v-spotlight class="card card-events">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -1769,7 +1949,7 @@ watch(
                 </span>
                 <div class="map-layer-toggle">
                   <button
-                    v-for="m in [{ id:'dark', label:'Dark' }, { id:'map', label:'Map' }, { id:'terrain', label:'Terrain' }]"
+                    v-for="m in [{ id:'dark', label:'Dark' }, { id:'map', label:'Map' }]"
                     :key="m.id"
                     :class="['mlt-btn', { 'mlt-btn--active': mapTileMode === m.id }]"
                     @click="switchTileLayer(m.id)"
@@ -1777,7 +1957,7 @@ watch(
                   >{{ m.label }}</button>
                 </div>
               </div>
-              <div id="map" class="full-map"></div>
+              <div id="map" class="full-map gf-leaflet-map"></div>
             </div>
 
             <!-- controls panel -->
@@ -1791,63 +1971,82 @@ watch(
               </div>
 
               <div class="gf-form">
-                <!-- zone type preset picker -->
-                <div class="field">
-                  <label class="field-label">Zone Type</label>
-                  <div class="zone-preset-grid">
-                    <button
-                      v-for="preset in ZONE_PRESETS"
-                      :key="preset.id"
-                      :class="['zone-preset-btn', { 'zone-preset-btn--active': selectedZoneType === preset.id }]"
-                      :style="selectedZoneType === preset.id ? { '--pcolor': ZONE_COLORS[preset.id] } : {}"
-                      @click="selectedZoneType = preset.id"
-                      type="button"
-                    >
-                      <component :is="ZONE_ICON_COMPONENT[preset.id]" :size="14" />
-                      <span>{{ preset.label }}</span>
+
+                <!-- ── idle state: no zone selected, not placing ── -->
+                <div v-if="!geofenceMarker && !addZoneMode" class="gf-idle-state">
+                  <p class="gf-idle-hint">Select a saved zone from the list below, or place a new one.</p>
+                  <button class="btn btn-primary gf-place-btn" @click="enterAddZoneMode" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                    Place New Zone
+                  </button>
+                </div>
+
+                <!-- ── add-mode: waiting for map click ── -->
+                <div v-if="addZoneMode" class="gf-add-mode-banner">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                  Click anywhere on the map to place the zone marker.
+                  <button class="gf-cancel-add" @click="addZoneMode = false" type="button">Cancel</button>
+                </div>
+
+                <!-- ── zone type picker (visible when placing or editing) ── -->
+                <template v-if="geofenceMarker || addZoneMode">
+                  <div class="field">
+                    <label class="field-label">Zone Type</label>
+                    <div class="zone-preset-grid">
+                      <button
+                        v-for="preset in ZONE_PRESETS"
+                        :key="preset.id"
+                        :class="['zone-preset-btn', { 'zone-preset-btn--active': selectedZoneType === preset.id }]"
+                        :style="selectedZoneType === preset.id ? { '--pcolor': ZONE_COLORS[preset.id] } : {}"
+                        @click="selectedZoneType = preset.id"
+                        type="button"
+                      >
+                        <component :is="ZONE_ICON_COMPONENT[preset.id]" :size="14" />
+                        <span>{{ preset.label }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- ── name + radius + buttons (visible when marker is placed) ── -->
+                <template v-if="geofenceMarker">
+                  <div class="field">
+                    <label class="field-label">
+                      Zone Name
+                      <span v-if="selectedZoneType !== 'other'" class="field-optional">(or type a custom name)</span>
+                    </label>
+                    <input
+                      v-if="selectedZoneType === 'other'"
+                      v-model.trim="customZoneName"
+                      @input="geofenceName = customZoneName || 'Zone'"
+                      type="text" maxlength="60" class="field-input" placeholder="e.g. My place"
+                    />
+                    <input
+                      v-else
+                      v-model.trim="geofenceName"
+                      type="text" maxlength="60" class="field-input"
+                      :placeholder="ZONE_PRESETS.find(p => p.id === selectedZoneType)?.label || 'Zone'"
+                    />
+                  </div>
+                  <div class="field">
+                    <div class="field-label-row">
+                      <label class="field-label">Radius</label>
+                      <span class="field-accent">{{ geofenceRadius }}m</span>
+                    </div>
+                    <input type="range" min="25" max="1000" step="25" v-model="geofenceRadius" @input="updateRadius" class="slider" />
+                    <div class="slider-ticks"><span>25m</span><span>500m</span><span>1km</span></div>
+                  </div>
+                  <div class="gf-btns">
+                    <button @click="saveGeofence" class="btn btn-primary" :disabled="geofenceSaving || geofenceDeleting">
+                      {{ geofenceSaving ? 'Saving…' : geofence?.id ? 'Update Zone' : 'Save Zone' }}
+                    </button>
+                    <button @click="enterAddZoneMode" class="btn btn-ghost" :disabled="geofenceSaving || geofenceDeleting">+ New</button>
+                    <button @click="deleteSelectedGeofence()" class="btn btn-danger" :disabled="!geofence?.id || geofenceSaving || geofenceDeleting">
+                      {{ geofenceDeleting ? 'Removing…' : 'Delete' }}
                     </button>
                   </div>
-                </div>
-                <!-- custom name when "other" or for override -->
-                <div class="field">
-                  <label class="field-label">
-                    Zone Name
-                    <span v-if="selectedZoneType !== 'other'" class="field-optional">(or type a custom name)</span>
-                  </label>
-                  <input
-                    v-if="selectedZoneType === 'other'"
-                    v-model.trim="customZoneName"
-                    @input="geofenceName = customZoneName || 'Zone'"
-                    type="text" maxlength="60" class="field-input" placeholder="e.g. My place"
-                  />
-                  <input
-                    v-else
-                    v-model.trim="geofenceName"
-                    type="text" maxlength="60" class="field-input"
-                    :placeholder="ZONE_PRESETS.find(p => p.id === selectedZoneType)?.label || 'Zone'"
-                  />
-                </div>
-                <div class="field">
-                  <div class="field-label-row">
-                    <label class="field-label">Radius</label>
-                    <span class="field-accent">{{ geofenceRadius }}m</span>
-                  </div>
-                  <input type="range" min="50" max="5000" step="50" v-model="geofenceRadius" @input="updateRadius" class="slider" />
-                  <div class="slider-ticks"><span>50m</span><span>2.5km</span><span>5km</span></div>
-                </div>
-                <p class="gf-hint">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                  Click the map to place or move the zone marker.
-                </p>
-                <div class="gf-btns">
-                  <button @click="saveGeofence" class="btn btn-primary" :disabled="!geofenceMarker || geofenceSaving || geofenceDeleting">
-                    {{ geofenceSaving ? 'Saving…' : geofence?.id ? 'Update Zone' : 'Save Zone' }}
-                  </button>
-                  <button v-if="geofence?.id" @click="resetGeofenceDraft" class="btn btn-ghost" :disabled="geofenceSaving || geofenceDeleting">+ New</button>
-                  <button @click="deleteSelectedGeofence()" class="btn btn-danger" :disabled="!geofence?.id || geofenceSaving || geofenceDeleting">
-                    {{ geofenceDeleting ? 'Removing…' : 'Delete' }}
-                  </button>
-                </div>
+                </template>
+
                 <div v-if="geofenceSaveMessage" :class="['gf-msg', geofenceSaveMessageType === 'success' ? 'gf-msg--ok' : 'gf-msg--err']">
                   {{ geofenceSaveMessage }}
                 </div>
@@ -1856,7 +2055,15 @@ watch(
               <div class="gf-divider"></div>
 
               <div v-if="geofences.length" class="gf-zones">
-                <p class="gf-zones-title">Saved Zones</p>
+                <div class="gf-zones-header">
+                  <p class="gf-zones-title">Saved Zones</p>
+                  <button
+                    class="gf-remove-all"
+                    :disabled="geofenceDeleting || geofenceSaving"
+                    @click="showConfirm('Remove All Zones', 'This will permanently delete all ' + geofences.length + ' saved zones.', 'This cannot be undone.', deleteAllGeofences)"
+                    type="button"
+                  >Remove All</button>
+                </div>
                 <div class="gf-zones-list">
                   <div
                     v-for="item in geofences" :key="item.id"
@@ -1880,12 +2087,132 @@ watch(
           </div>
         </div>
 
+        <!-- - - - - events tab - - - - -->
+        <div v-show="activeTab === 'events'" class="tab-pane tab-pane--events">
+          <div class="ev-page">
+
+            <!-- stat cards -->
+            <div class="ev-stats-row">
+              <div class="ev-stat-card">
+                <span class="ev-stat-num">{{ eventStats.total }}</span>
+                <span class="ev-stat-label">Total Events</span>
+              </div>
+              <div class="ev-stat-card ev-stat-card--alert">
+                <span class="ev-stat-num" :style="{ color: '#ef4444' }">{{ eventStats.sos }}</span>
+                <span class="ev-stat-label">SOS</span>
+              </div>
+              <div class="ev-stat-card">
+                <span class="ev-stat-num" :style="{ color: '#f97316' }">{{ eventStats.fall }}</span>
+                <span class="ev-stat-label">Falls</span>
+              </div>
+              <div class="ev-stat-card">
+                <span class="ev-stat-num" :style="{ color: '#f59e0b' }">{{ eventStats.battery }}</span>
+                <span class="ev-stat-label">Battery</span>
+              </div>
+              <div class="ev-stat-card">
+                <span class="ev-stat-num" :style="{ color: '#4f8ff7' }">{{ eventStats.geofenceEvts }}</span>
+                <span class="ev-stat-label">Geofence</span>
+              </div>
+            </div>
+
+            <div class="ev-main-row">
+
+              <!-- bar chart -->
+              <div v-spotlight class="card ev-chart-card" v-if="eventStats.breakdown.length">
+                <div class="card-head">
+                  <div class="card-head-left">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    <span class="card-title">Event Breakdown</span>
+                  </div>
+                </div>
+                <div class="ev-chart">
+                  <div v-for="bar in eventStats.breakdown" :key="bar.label" class="ev-bar-row">
+                    <span class="ev-bar-label">{{ bar.label }}</span>
+                    <div class="ev-bar-track">
+                      <div
+                        class="ev-bar-fill"
+                        :style="{ width: (bar.count / eventStats.maxCount * 100) + '%', background: bar.color }"
+                      ></div>
+                    </div>
+                    <span class="ev-bar-count">{{ bar.count }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- no-data placeholder -->
+              <div v-spotlight class="card ev-chart-card ev-no-data" v-else>
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity=".2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+                <p>No events recorded yet</p>
+              </div>
+
+              <!-- recent alerts -->
+              <div v-spotlight class="card ev-alerts-card">
+                <div class="card-head">
+                  <div class="card-head-left">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                    <span class="card-title">Critical Alerts</span>
+                  </div>
+                  <span v-if="eventStats.sos + eventStats.fall > 0" class="count-badge count-badge--alert">{{ eventStats.sos + eventStats.fall }}</span>
+                </div>
+                <div v-if="events.filter(e => isAlertEvent(e)).length === 0" class="events-empty">
+                  <p style="font-size:12px;color:var(--dim)">No critical alerts</p>
+                </div>
+                <div v-else class="ev-alerts-list">
+                  <div v-for="e in events.filter(ev => isAlertEvent(ev)).slice(0, 8)" :key="e.id" class="ev-alert-row">
+                    <div class="ev-alert-dot"></div>
+                    <div class="ev-alert-info">
+                      <span class="ev-alert-name">{{ e.name }}</span>
+                      <span class="ev-alert-time">{{ new Date(e.created_at).toLocaleString() }}</span>
+                    </div>
+                    <span class="type-badge type-badge--alert" :style="{ backgroundColor: currentAlertColor, transition: 'background-color 90ms linear' }">{{ e.type }}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- full events table -->
+            <div v-spotlight class="card ev-table-card">
+              <div class="card-head">
+                <div class="card-head-left">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect width="6" height="4" x="9" y="3" rx="1"/><path d="M9 12h6"/><path d="M9 16h4"/></svg>
+                  <span class="card-title">All Events</span>
+                </div>
+                <span v-if="events.length" class="count-badge">{{ events.length }}</span>
+              </div>
+              <div v-if="!events.length" class="events-empty">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity=".25"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+                <p>No events yet</p>
+              </div>
+              <div v-else class="events-table-wrap">
+                <table class="events-table">
+                  <thead><tr><th>Event</th><th>Type</th><th>Description</th><th>Time</th></tr></thead>
+                  <tbody>
+                    <tr v-for="event in events" :key="event.id">
+                      <td class="ev-name">{{ event.name }}</td>
+                      <td>
+                        <span
+                          :class="['type-badge', isAlertEvent(event) ? 'type-badge--alert' : 'type-badge--ok']"
+                          :style="isAlertEvent(event) ? { backgroundColor: currentAlertColor, transition: 'background-color 90ms linear' } : {}"
+                        >{{ event.type }}</span>
+                      </td>
+                      <td class="ev-desc">{{ event.description }}</td>
+                      <td class="ev-time">{{ new Date(event.created_at).toLocaleString() }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
         <!-- - - - - settings tab - - - - -->
         <div v-show="activeTab === 'settings'" class="tab-pane">
           <div class="settings-grid">
 
             <!-- account card -->
-            <div class="card">
+            <div v-spotlight class="card">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
@@ -1964,7 +2291,7 @@ watch(
             </div>
 
             <!-- custom marker card -->
-            <div class="card">
+            <div v-spotlight class="card">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -1990,7 +2317,7 @@ watch(
             </div>
 
             <!-- device status card -->
-            <div class="card">
+            <div v-spotlight class="card">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="20" x="5" y="2" rx="3"/><path d="M12 18h.01"/></svg>
@@ -2009,7 +2336,7 @@ watch(
             </div>
 
             <!-- about card -->
-            <div class="card">
+            <div v-spotlight class="card">
               <div class="card-head">
                 <div class="card-head-left">
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
@@ -2334,12 +2661,22 @@ watch(
 
 .tb-loc-country {
   flex-shrink: 0;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 6px;
   font-size: 10px;
   font-weight: 800;
   color: #fff;
   letter-spacing: 0.06em;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.flag-img {
+  width: 22px;
+  height: 14px;
+  object-fit: cover;
+  border-radius: 3px;
+  display: block;
 }
 
 .tb-loc-text {
@@ -2405,7 +2742,26 @@ watch(
   border: 1px solid var(--border);
   border-radius: var(--r);
   padding: 18px;
+  position: relative;
+  overflow: hidden;
+  --sx: 50%;
+  --sy: 50%;
+  --so: 0;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(280px circle at var(--sx) var(--sy), rgba(79,143,247,0.1), transparent 70%);
+  opacity: var(--so);
+  transition: opacity 0.3s;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 0;
+}
+.card > * { position: relative; z-index: 1; }
+.card:hover { border-color: rgba(79,143,247,0.25); box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
 
 .card-head {
   display: flex;
@@ -2507,6 +2863,25 @@ watch(
   border: 1px solid rgba(79,143,247,0.18);
   min-width: 0;
 }
+.gmaps-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: #e2e2f0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  white-space: nowrap;
+}
+.gmaps-btn:hover { background: rgba(255,255,255,0.13); transform: translateY(-1px); }
+.gmaps-icon { width: 13px; height: 13px; border-radius: 2px; }
 
 .loc-radar-wrap {
   position: relative;
@@ -2542,12 +2917,15 @@ watch(
 
 .loc-country-code {
   flex-shrink: 0;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 6px;
   font-size: 10px;
   font-weight: 800;
   color: #fff;
   letter-spacing: 0.06em;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
 }
 
 .loc-address-text {
@@ -2610,6 +2988,63 @@ watch(
 }
 
 /* ── weather strip ── */
+/* ── geofence status strip ── */
+.gf-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid;
+  transition: background 0.3s, border-color 0.3s;
+}
+.gf-status-strip--in {
+  background: rgba(34,197,94,0.08);
+  border-color: rgba(34,197,94,0.25);
+}
+.gf-status-strip--out {
+  background: rgba(239,68,68,0.07);
+  border-color: rgba(239,68,68,0.2);
+}
+.gf-status-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.gf-status-strip--in .gf-status-icon { color: #22c55e; }
+.gf-status-strip--out .gf-status-icon { color: #ef4444; }
+.gf-status-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.gf-status-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+.gf-status-strip--in .gf-status-label { color: #86efac; }
+.gf-status-strip--out .gf-status-label { color: #fca5a5; }
+.gf-status-sub {
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gf-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.gf-status-dot--in  { background: #22c55e; animation: pulse-green 2s ease-in-out infinite; }
+.gf-status-dot--out { background: #ef4444; }
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+  50%       { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+}
+
 .loc-weather-strip {
   margin-top: 10px;
   border-radius: var(--r-sm);
@@ -2831,6 +3266,149 @@ watch(
 }
 
 /* ── events card ── */
+/* ── events page ── */
+.tab-pane--events { overflow-y: auto; }
+.ev-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.ev-stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.ev-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.ev-stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+.ev-stat-num {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+.ev-stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+}
+.ev-main-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ev-chart-card, .ev-alerts-card, .ev-table-card {
+  padding: 16px;
+}
+.ev-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.ev-bar-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 32px;
+  align-items: center;
+  gap: 10px;
+}
+.ev-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
+  text-align: right;
+}
+.ev-bar-track {
+  height: 10px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 100px;
+  overflow: hidden;
+}
+.ev-bar-fill {
+  height: 100%;
+  border-radius: 100px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
+.ev-bar-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-align: left;
+}
+.ev-no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 140px;
+  color: var(--dim);
+  font-size: 12px;
+}
+.ev-alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.ev-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.12);
+  border-radius: 10px;
+}
+.ev-alert-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.75); }
+}
+.ev-alert-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.ev-alert-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev-alert-time {
+  font-size: 10px;
+  color: var(--dim);
+}
+.count-badge--alert { background: rgba(239,68,68,0.15); color: #fca5a5; border-color: rgba(239,68,68,0.2); }
+.ev-table-card { margin-top: 0; }
+
 .events-empty {
   display: flex;
   flex-direction: column;
@@ -2942,13 +3520,16 @@ watch(
 
 .gf-map-panel {
   position: relative;
-  padding: 16px 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .full-map {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  border-radius: var(--r);
+  border-radius: 0 0 var(--r) var(--r);
   overflow: hidden;
 }
 
@@ -3058,6 +3639,55 @@ watch(
   margin: 0;
 }
 
+.gf-idle-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0 8px;
+  text-align: center;
+}
+.gf-idle-hint {
+  font-size: 12px;
+  color: var(--dim);
+  margin: 0;
+  line-height: 1.5;
+}
+.gf-place-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.gf-add-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(79,143,247,0.12);
+  border: 1px solid rgba(79,143,247,0.3);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: #93c5fd;
+  animation: pulse-border 2s ease-in-out infinite;
+}
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(79,143,247,0.3); }
+  50%       { border-color: rgba(79,143,247,0.7); }
+}
+.gf-cancel-add {
+  margin-left: auto;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.gf-cancel-add:hover { background: rgba(255,255,255,0.12); }
+
 .gf-btns {
   display: flex;
   gap: 8px;
@@ -3133,14 +3763,33 @@ watch(
   margin: 18px 0;
 }
 
+.gf-zones-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
 .gf-zones-title {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
-  margin: 0 0 10px;
+  margin: 0;
 }
+.gf-remove-all {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: 6px;
+  color: #fca5a5;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.gf-remove-all:hover:not(:disabled) { background: rgba(239,68,68,0.2); }
+.gf-remove-all:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .gf-zones-list {
   display: flex;
@@ -4064,46 +4713,37 @@ watch(
 
 /* ── map toolbar (layer toggle) ── */
 .gf-map-toolbar {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  z-index: 500;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  pointer-events: none;
+  padding: 10px 14px;
+  background: var(--surf);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--r) var(--r) 0 0;
+  flex-shrink: 0;
 }
 
 .gf-map-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: rgba(8,8,16,0.82);
-  backdrop-filter: blur(8px);
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.1);
   font-size: 12px;
   font-weight: 600;
   color: #c8c8d8;
-  pointer-events: auto;
 }
 
 .map-layer-toggle {
   display: flex;
   gap: 4px;
-  background: rgba(8,8,16,0.82);
-  backdrop-filter: blur(8px);
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.1);
-  padding: 4px;
-  pointer-events: auto;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 3px;
 }
 
 .mlt-btn {
-  padding: 5px 11px;
-  border-radius: 7px;
+  padding: 4px 11px;
+  border-radius: 6px;
   border: none;
   background: none;
   color: #c8c8d8;
@@ -4121,8 +4761,25 @@ watch(
   color: #fff;
 }
 
-/* ensure map panel is position:relative so toolbar can use absolute positioning */
-.gf-map-panel {
-  position: relative;
+/* Leaflet dark theme overrides */
+.gf-leaflet-map :deep(.leaflet-control-zoom a) {
+  background: #0e0e18;
+  color: #c8c8d8;
+  border-color: rgba(255,255,255,0.12);
+}
+.gf-leaflet-map :deep(.leaflet-control-zoom a:hover) {
+  background: #1a1a2e;
+  color: #fff;
+}
+.gf-leaflet-map :deep(.leaflet-control-zoom) {
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+}
+.gf-leaflet-map :deep(.leaflet-control-attribution) {
+  background: rgba(8,8,16,0.7);
+  color: rgba(200,200,216,0.4);
+  font-size: 9px;
 }
 </style>
