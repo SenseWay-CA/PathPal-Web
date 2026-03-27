@@ -710,6 +710,8 @@ async function getUserInfo(newID) {
     if (!response.ok) throw new Error(`status: ${response.status}`)
     const data = await response.json()
     userInfo.value = data
+    // sync avatar from DB (overrides localStorage fallback)
+    if (data.avatar_url) saveProfilePic(data.avatar_url)
     // trigger home geo label fetch on first load
     if (data.home_lat) fetchHomeGeoLabel(data.home_lat, data.home_long)
   } catch (error) {
@@ -1369,12 +1371,11 @@ function closeAvatarMenu() {
 //
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-const profilePicUrl = ref(localStorage.getItem('sw_profile_pic') || '')
+const profilePicUrl = ref(authStore.user?.avatar_url || localStorage.getItem('sw_profile_pic') || '')
 
 function saveProfilePic(url) {
   profilePicUrl.value = url
   localStorage.setItem('sw_profile_pic', url)
-  addNotification('success', 'Profile picture updated', 'Your new avatar has been saved.')
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1385,6 +1386,20 @@ function saveProfilePic(url) {
 
 const editMode = ref(false)
 const profilePicInput = ref('')
+const avatarFileInputRef = ref(null)
+
+function handleAvatarFileUpload(event) {
+  const file = event.target.files[0]
+  if (!file) return
+  if (file.size > 300 * 1024) {
+    addNotification('error', 'Image too large', 'Please choose an image under 300 KB.')
+    event.target.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = (e) => { profilePicInput.value = e.target.result }
+  reader.readAsDataURL(file)
+}
 
 const profileForm = ref({
   name: '', email: '', birth_date: '', newPassword: '', confirmPassword: '',
@@ -1423,6 +1438,7 @@ async function doSaveProfile() {
     birth_date: f.birth_date ? new Date(f.birth_date).toISOString() : new Date(userInfo.value.birth_date).toISOString(),
     home_long: userInfo.value.home_long || 0,
     home_lat: userInfo.value.home_lat || 0,
+    avatar_url: profilePicInput.value || '',
     ...(f.newPassword ? { password: f.newPassword } : {}),
   }
 
@@ -1439,10 +1455,8 @@ async function doSaveProfile() {
     }
     const updated = await resp.json()
     userInfo.value = { ...userInfo.value, ...updated }
-    authStore.updateCachedUser({ name: updated.name, email: updated.email })
-    if (profilePicInput.value !== profilePicUrl.value) {
-      saveProfilePic(profilePicInput.value)
-    }
+    authStore.updateCachedUser({ name: updated.name, email: updated.email, avatar_url: updated.avatar_url })
+    saveProfilePic(updated.avatar_url || '')
     editMode.value = false
     addNotification('success', 'Profile updated', 'Your account details have been saved successfully.')
   } catch (err) {
@@ -2255,10 +2269,18 @@ watch(
               <!-- edit mode -->
               <div v-else class="edit-form">
                 <div class="field">
-                  <label class="field-label">Avatar URL</label>
-                  <div class="input-with-preview">
-                    <input v-model="profilePicInput" type="url" class="field-input" placeholder="https://example.com/avatar.png" />
-                    <img v-if="profilePicInput" :src="profilePicInput" class="avatar-preview-sm" alt="" @error="(e) => e.target.style.display='none'" />
+                  <label class="field-label">Profile Picture</label>
+                  <div class="avatar-upload-row">
+                    <div class="avatar-upload-preview">
+                      <img v-if="profilePicInput" :src="profilePicInput" class="avatar-preview-lg" alt="preview" @error="(e) => e.target.style.display='none'" />
+                      <svg v-else xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".4"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+                    </div>
+                    <div class="avatar-upload-controls">
+                      <input ref="avatarFileInputRef" type="file" accept="image/*" style="display:none" @change="handleAvatarFileUpload" />
+                      <button type="button" class="btn btn-ghost btn-xs" @click="avatarFileInputRef.click()">Upload Image</button>
+                      <span class="field-or">or paste URL</span>
+                      <input v-model="profilePicInput" type="url" class="field-input field-input--sm" placeholder="https://example.com/avatar.png" />
+                    </div>
                   </div>
                 </div>
                 <div class="field">
@@ -4618,21 +4640,47 @@ watch(
   font-weight: 400;
 }
 
-.input-with-preview {
+.avatar-upload-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
-.input-with-preview .field-input {
-  flex: 1;
-}
-.avatar-preview-sm {
-  width: 34px;
-  height: 34px;
+.avatar-upload-preview {
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
-  object-fit: cover;
+  background: var(--bg3);
   border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   flex-shrink: 0;
+}
+.avatar-preview-lg {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.avatar-upload-controls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-or {
+  font-size: 11px;
+  color: var(--muted);
+}
+.btn-xs {
+  padding: 4px 10px;
+  font-size: 11px;
+  height: auto;
+}
+.field-input--sm {
+  height: 30px;
+  font-size: 12px;
 }
 
 .field-input--date {
