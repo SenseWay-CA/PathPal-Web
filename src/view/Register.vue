@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import FlipWords from '@/components/FlipWords.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -77,12 +78,15 @@ const handleRegister = async () => {
 
 <template>
   <div class="w-full lg:grid lg:min-h-screen lg:grid-cols-2">
-    <div class="hidden bg-zinc-900 lg:flex flex-col justify-between p-12 text-white" style="overflow:hidden;min-width:0;">
+    <div class="hidden lg:flex flex-col justify-between p-12 text-white" style="overflow:hidden;min-width:0;background:radial-gradient(ellipse 80% 60% at 50% -10%, rgba(79,143,247,0.07) 0%, transparent 70%), #060610;border-right:1px solid rgba(255,255,255,0.05);">
       <div class="text-3xl font-bold" style="background:linear-gradient(90deg,#4f8ff7,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">SenseWay</div>
       <div class="max-w-md text-5xl font-extrabold leading-tight">
-        Surrender your steps.<br />
-        Obey the algorithm.<br />
-        We know where you're going.
+        Surrender your
+        <FlipWords :words="['steps.', 'moves.', 'data.', 'trail.', 'location.']" :duration="2800" /><br />
+        Obey the
+        <FlipWords :words="['algorithm.', 'system.', 'machine.', 'network.', 'AI.']" :duration="3100" /><br />
+        We know where<br />
+        <FlipWords :words="[`you're going.`, 'you live.', 'you sleep.', 'you wander.', 'you hide.']" :duration="3400" />
       </div>
 
       <!-- testimonial marquee -->
@@ -233,11 +237,18 @@ const handleRegister = async () => {
 @keyframes reg-fwd { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @keyframes reg-rev { from { transform: translateX(-50%); } to { transform: translateX(0); } }
 .reg-card {
-  width: 200px; flex-shrink: 0;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 14px;
-  padding: 12px 14px;
+  width: 220px; flex-shrink: 0;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  padding: 14px 16px;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.25s, transform 0.2s, background 0.2s;
+}
+.reg-card:hover {
+  border-color: rgba(79,143,247,0.22);
+  background: rgba(79,143,247,0.04);
+  transform: translateY(-2px);
 }
 .reg-body {
   font-size: 11px; color: rgba(200,200,216,0.7); line-height: 1.5; margin: 0 0 10px;

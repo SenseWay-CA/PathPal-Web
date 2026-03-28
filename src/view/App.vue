@@ -1,6 +1,10 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import FlipWords from '@/components/FlipWords.vue'
+import CircularProgress from '@/components/CircularProgress.vue'
+import HyperText from '@/components/HyperText.vue'
+import AppConfetti from '@/components/AppConfetti.vue'
 import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, LayoutDashboard, Target, Settings, LogOut, User, Mail, Camera, Bell, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save, Briefcase, GraduationCap, Hospital, Pill, Leaf, ShoppingCart, Dumbbell, Layers } from 'lucide-vue-next'
 
 // ── click-outside directive ──
@@ -36,6 +40,7 @@ const vSpotlight = {
 }
 
 // ── visual enhancement state ──
+const confettiRef = ref(null)
 const isLoading = ref(true)
 const topoCanvasRef = ref(null)
 const loadingTyped = ref('')
@@ -76,6 +81,7 @@ const id = computed(() => authStore.user?.user_id || '')
 //                                                    navigation / tabs
 
 const activeTab = ref('dashboard')
+const tabSwitchKey = ref(0)
 
 const pageTitle = computed(() => {
   if (activeTab.value === 'dashboard') return 'Dashboard'
@@ -87,6 +93,7 @@ const pageTitle = computed(() => {
 
 function setTab(tab) {
   activeTab.value = tab
+  tabSwitchKey.value++
   nextTick(() => {
     if (tab === 'geofence' && map.value) {
       map.value.invalidateSize()
@@ -354,6 +361,13 @@ const locationShort = computed(() => {
   return [city, country].filter(Boolean).join(', ')
 })
 
+const coordinatesText = computed(() => {
+  const lat = status.value.latitude
+  const lon = status.value.longitude
+  if (!lat && !lon) return '—'
+  return `${lat.toFixed(5)}, ${lon.toFixed(5)}`
+})
+
 // country flag badge — uses Wikimedia flag SVGs for known countries, falls back to ISO text
 const FLAG_URLS = {
   CA: 'https://upload.wikimedia.org/wikipedia/commons/d/d9/Flag_of_Canada_%28Pantone%29.svg',
@@ -557,6 +571,21 @@ const batteryTextColor = computed(() => {
   if (p > 51) return '#4ade80'
   if (p >= 10) return '#fbbf24'
   return '#f87171'
+})
+
+const heartRateProgress = computed(() => {
+  const hr = Number(status.value.heart_rate)
+  if (!hr || Number.isNaN(hr)) return 0
+  // map 40–180 bpm → 0–100%
+  return Math.min(Math.max(((hr - 40) / 140) * 100, 4), 100)
+})
+
+const heartRateArcColor = computed(() => {
+  const hr = Number(status.value.heart_rate)
+  if (!hr || Number.isNaN(hr)) return 'rgba(255,255,255,0.15)'
+  if (hr >= 60 && hr <= 100) return '#22c55e'
+  if (hr > 100 && hr <= 140) return '#f59e0b'
+  return '#ef4444'
 })
 
 const isAlertEvent = (event) => {
@@ -782,7 +811,6 @@ function initializeOrUpdateMap(lat, lon) {
   if (map.value) {
     map.value.off('click', handleMapClick)
     map.value.on('click', handleMapClick)
-    renderGeofencesOnMap()
   }
 }
 
@@ -795,9 +823,12 @@ function initMiniMap(lat, lon) {
   if (!el) return
 
   if (mapMini.value) {
-    mapMini.value.setView([lat, lon], 15, { animate: false })
     if (miniMarker.value) miniMarker.value.setLatLng([lat, lon])
     else miniMarker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(mapMini.value)
+    // pan only if the new position is outside the visible bounds
+    if (!mapMini.value.getBounds().contains([lat, lon])) {
+      mapMini.value.panTo([lat, lon], { animate: true, duration: 0.5 })
+    }
   } else {
     try {
       // mini map: read-only, no controls
@@ -815,6 +846,9 @@ function initMiniMap(lat, lon) {
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 19,
+        updateWhenIdle: true,
+        updateWhenZooming: false,
+        keepBuffer: 4,
       }).addTo(mapMini.value)
       miniMarker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(mapMini.value)
     } catch (err) {
@@ -1458,6 +1492,7 @@ async function doSaveProfile() {
     authStore.updateCachedUser({ name: updated.name, email: updated.email, avatar_url: updated.avatar_url })
     saveProfilePic(updated.avatar_url || '')
     editMode.value = false
+    confettiRef.value?.fire()
     addNotification('success', 'Profile updated', 'Your account details have been saved successfully.')
   } catch (err) {
     addNotification('error', 'Update failed', err.message || 'Could not save changes.')
@@ -1513,6 +1548,9 @@ watch(
 <template>
   <!-- Topography canvas background -->
   <canvas ref="topoCanvasRef" class="topo-canvas"></canvas>
+
+  <!-- Confetti layer (fixed, pointer-events none) -->
+  <AppConfetti ref="confettiRef" />
 
   <!-- ==================== notification toasts ==================== -->
   <Teleport to="body">
@@ -1627,40 +1665,46 @@ watch(
       <!-- topbar -->
       <header class="topbar">
         <div class="topbar-inner">
+
+          <!-- left: liquid page title -->
           <div class="topbar-left">
             <h1 class="page-title">{{ pageTitle }}</h1>
           </div>
 
+          <!-- center: status pills -->
           <div class="topbar-center">
-            <span class="live-pill">
+            <!-- LIVE -->
+            <span class="tb-pill tb-pill--live">
               <span class="live-dot"></span>LIVE
             </span>
-            <div class="tb-divider"></div>
-            <div class="tb-stat">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
-              <span :style="{ color: batteryTextColor }">{{ batteryPercentage }}%</span>
-            </div>
-            <div class="tb-divider"></div>
-            <div class="tb-stat">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-              <span :style="{ color: currentHeartTextColor }">{{ status.heart_rate || '—' }}<span v-if="status.heart_rate" class="bpm-unit"> bpm</span></span>
-            </div>
-            <template v-if="locationShort">
-              <div class="tb-divider"></div>
-              <div class="tb-loc-chip">
-                <span class="tb-loc-radar">
-                  <span class="tb-loc-ring"></span>
-                  <span class="tb-loc-dot"></span>
-                </span>
-                <span v-if="countryCode" class="tb-loc-country" :style="countryCode.flag ? {} : { background: countryCode.color }">
-                  <img v-if="countryCode.flag" :src="countryCode.flag" class="flag-img" :alt="countryCode.code" />
-                  <span v-else>{{ countryCode.code }}</span>
-                </span>
-                <span class="tb-loc-text">{{ locationShort }}</span>
-              </div>
-            </template>
+
+            <!-- battery -->
+            <span class="tb-pill" :style="{ '--pill-accent': batteryTextColor }">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="tb-pill-icon"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+              <span class="tb-pill-val" :style="{ color: batteryTextColor }">{{ batteryPercentage }}<span class="tb-pill-unit">%</span></span>
+            </span>
+
+            <!-- heart rate -->
+            <span class="tb-pill" :style="{ '--pill-accent': currentHeartTextColor }">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" :stroke="currentHeartTextColor" stroke-width="2.2" class="tb-pill-icon"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+              <span class="tb-pill-val" :style="{ color: currentHeartTextColor }">{{ status.heart_rate || '—' }}<span v-if="status.heart_rate" class="tb-pill-unit"> bpm</span></span>
+            </span>
+
+            <!-- location -->
+            <span v-if="locationShort" class="tb-pill tb-pill--loc">
+              <span class="tb-loc-radar">
+                <span class="tb-loc-ring"></span>
+                <span class="tb-loc-dot"></span>
+              </span>
+              <span v-if="countryCode" class="tb-loc-country" :style="countryCode.flag ? {} : { background: countryCode.color }">
+                <img v-if="countryCode.flag" :src="countryCode.flag" class="flag-img" :alt="countryCode.code" />
+                <span v-else>{{ countryCode.code }}</span>
+              </span>
+              <span class="tb-loc-text">{{ locationShort }}</span>
+            </span>
           </div>
 
+          <!-- right: avatar -->
           <div class="topbar-right">
             <div class="avatar-wrap" @click="toggleAvatarMenu" v-click-outside="closeAvatarMenu">
               <div class="tb-avatar" :class="{ 'tb-avatar--active': showAvatarMenu }">
@@ -1708,6 +1752,34 @@ watch(
 
         <!-- - - - - dashboard - - - - -->
         <div v-show="activeTab === 'dashboard'" class="tab-pane">
+
+          <!-- welcome hero -->
+          <div class="dash-hero">
+            <div class="dash-hero-left">
+              <p class="dash-hero-greet">Welcome back, <HyperText :text="authStore.user?.name?.split(' ')[0] || 'there'" :color-cycle="true" :trigger="tabSwitchKey" class="dash-hero-name" /></p>
+              <div class="dash-hero-tagline">
+                Monitoring <FlipWords :words="['every step.', 'vital signs.', 'real-time location.', 'safety zones.', 'health data.']" :duration="2600" color="#4f8ff7" />
+                Keep <FlipWords :words="['them safe.', 'moving forward.', 'loved ones close.', 'track of everything.', 'peace of mind.']" :duration="3000" color="#a855f7" />
+              </div>
+            </div>
+            <div class="dash-hero-right">
+              <div class="dh-stat">
+                <span class="dh-stat-val" :style="{ color: batteryTextColor }">{{ batteryPercentage }}<span class="dh-stat-unit">%</span></span>
+                <span class="dh-stat-key">Battery</span>
+              </div>
+              <div class="dh-divider"></div>
+              <div class="dh-stat">
+                <span class="dh-stat-val" :style="{ color: currentHeartTextColor }">{{ status.heart_rate || '—' }}<span v-if="status.heart_rate" class="dh-stat-unit"> bpm</span></span>
+                <span class="dh-stat-key">Heart Rate</span>
+              </div>
+              <div class="dh-divider"></div>
+              <div class="dh-stat">
+                <span class="dh-stat-val">{{ geofences.length }}</span>
+                <span class="dh-stat-key">Safe Zones</span>
+              </div>
+            </div>
+          </div>
+
           <div class="dash-grid">
 
             <!-- mini map + location details -->
@@ -1747,40 +1819,40 @@ watch(
                 <!-- neighbourhood -->
                 <div v-if="nearestPlace.neighbourhood" class="loc-detail-item">
                   <span class="loc-detail-key"><Building2 :size="10" class="loc-dk-icon" /> Neighbourhood</span>
-                  <span class="loc-detail-val">{{ nearestPlace.neighbourhood }}</span>
+                  <span class="loc-detail-val"><HyperText :text="nearestPlace.neighbourhood" :trigger="tabSwitchKey" /></span>
                 </div>
                 <!-- road -->
                 <div v-if="nearestPlace.road" class="loc-detail-item">
                   <span class="loc-detail-key"><Navigation2 :size="10" class="loc-dk-icon" /> Street</span>
-                  <span class="loc-detail-val">{{ nearestPlace.road }}</span>
+                  <span class="loc-detail-val"><HyperText :text="nearestPlace.road" :trigger="tabSwitchKey" /></span>
                 </div>
                 <!-- postcode -->
                 <div v-if="nearestPlace.postcode" class="loc-detail-item">
                   <span class="loc-detail-key"><Hash :size="10" class="loc-dk-icon" /> Postal Code</span>
-                  <span class="loc-detail-val">{{ nearestPlace.postcode }}</span>
+                  <span class="loc-detail-val"><HyperText :text="nearestPlace.postcode" :trigger="tabSwitchKey" /></span>
                 </div>
                 <!-- state -->
                 <div v-if="nearestPlace.state" class="loc-detail-item">
                   <span class="loc-detail-key"><Globe :size="10" class="loc-dk-icon" /> Province / State</span>
-                  <span class="loc-detail-val">{{ nearestPlace.state }}</span>
+                  <span class="loc-detail-val"><HyperText :text="nearestPlace.state" :trigger="tabSwitchKey" /></span>
                 </div>
                 <!-- elevation -->
                 <div v-if="weatherData.elevation != null" class="loc-detail-item">
                   <span class="loc-detail-key"><Mountain :size="10" class="loc-dk-icon" /> Elevation</span>
-                  <span class="loc-detail-val">{{ weatherData.elevation }} m</span>
+                  <span class="loc-detail-val"><HyperText :text="String(weatherData.elevation) + ' m'" :trigger="tabSwitchKey" /></span>
                 </div>
                 <!-- nearest building / place -->
                 <div v-if="nearestPlace.name" class="loc-detail-item loc-detail-item--building">
                   <span class="loc-detail-key"><Building2 :size="10" class="loc-dk-icon" /> Nearest Place</span>
                   <span class="loc-detail-val loc-building-val">
-                    <span class="loc-building-name">{{ nearestPlace.name }}</span>
-                    <span v-if="nearestPlace.buildingType" class="loc-building-type">{{ nearestPlace.buildingType }}</span>
+                    <span class="loc-building-name"><HyperText :text="nearestPlace.name" :trigger="tabSwitchKey" /></span>
+                    <span v-if="nearestPlace.buildingType" class="loc-building-type"><HyperText :text="nearestPlace.buildingType" :trigger="tabSwitchKey" /></span>
                   </span>
                 </div>
                 <!-- coordinates -->
                 <div class="loc-detail-item">
                   <span class="loc-detail-key"><MapPin :size="10" class="loc-dk-icon" /> Coordinates</span>
-                  <span class="loc-detail-val">{{ status.latitude?.toFixed(5) }}, {{ status.longitude?.toFixed(5) }}</span>
+                  <span class="loc-detail-val"><HyperText :text="coordinatesText" :trigger="tabSwitchKey" /></span>
                 </div>
               </div>
 
@@ -1809,35 +1881,35 @@ watch(
                       <component :is="WeatherIconComponent" :size="11" class="wx-icon" />
                       Weather
                     </span>
-                    <span class="loc-wx-val">{{ weatherLabel }}</span>
+                    <span class="loc-wx-val"><HyperText :text="weatherLabel" :trigger="tabSwitchKey" /></span>
                   </div>
                   <div v-if="weatherData.temp != null" class="loc-wx-item">
                     <span class="loc-wx-key">
                       <Thermometer :size="11" class="wx-icon" />
                       Temperature
                     </span>
-                    <span class="loc-wx-val">{{ weatherData.temp }}°C</span>
+                    <span class="loc-wx-val"><HyperText :text="String(weatherData.temp) + '°C'" :trigger="tabSwitchKey" /></span>
                   </div>
                   <div v-if="weatherData.wind != null" class="loc-wx-item">
                     <span class="loc-wx-key">
                       <Wind :size="11" class="wx-icon" />
                       Wind
                     </span>
-                    <span class="loc-wx-val">{{ weatherData.wind }} km/h</span>
+                    <span class="loc-wx-val"><HyperText :text="String(weatherData.wind) + ' km/h'" :trigger="tabSwitchKey" /></span>
                   </div>
                   <div v-if="weatherData.humidity != null" class="loc-wx-item">
                     <span class="loc-wx-key">
                       <Droplets :size="11" class="wx-icon" />
                       Humidity
                     </span>
-                    <span class="loc-wx-val">{{ weatherData.humidity }}%</span>
+                    <span class="loc-wx-val"><HyperText :text="String(weatherData.humidity) + '%'" :trigger="tabSwitchKey" /></span>
                   </div>
                 </div>
 
                 <!-- pavement condition -->
                 <div v-if="pavementCondition" class="loc-pavement" :class="`loc-pavement--${pavementCondition.level}`">
                   <span class="loc-pavement-dot"></span>
-                  <span class="loc-pavement-label">Pavement: {{ pavementCondition.label }}</span>
+                  <span class="loc-pavement-label">Pavement: <HyperText :text="pavementCondition.label" :trigger="tabSwitchKey" /></span>
                 </div>
               </div>
 
@@ -1853,14 +1925,13 @@ watch(
                     <span class="card-title">Battery</span>
                   </div>
                 </div>
-                <div class="metric-body">
-                  <img :src="batteryImage" class="metric-img" alt="battery" />
-                  <div class="metric-val-col">
-                    <span class="metric-val" :style="{ color: batteryTextColor }">{{ batteryPercentage }}%</span>
-                    <div class="bar-track">
-                      <div class="bar-fill" :style="{ width: batteryPercentage + '%', background: batteryTextColor }"></div>
+                <div class="metric-body metric-body--circular">
+                  <CircularProgress :value="batteryPercentage" :size="120" :strokeWidth="9" :primaryColor="batteryTextColor" secondaryColor="rgba(255,255,255,0.07)">
+                    <div class="cp-center-content">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" :stroke="batteryTextColor" stroke-width="1.8"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+                      <span class="cp-val" :style="{ color: batteryTextColor }">{{ batteryPercentage }}%</span>
                     </div>
-                  </div>
+                  </CircularProgress>
                 </div>
               </div>
 
@@ -1872,17 +1943,16 @@ watch(
                     <span class="card-title">Heart Rate</span>
                   </div>
                 </div>
-                <div class="metric-body">
-                  <div class="heart-wrap">
-                    <div class="heart-glow" :style="{ backgroundColor: currentHeartColor }"></div>
-                    <img :src="currentHeartImage" class="heart-img" alt="heart" />
-                  </div>
-                  <div class="metric-val-col">
-                    <span class="metric-val" :style="{ color: currentHeartTextColor }">
-                      {{ status.heart_rate || '—' }}<span v-if="status.heart_rate" class="metric-unit"> bpm</span>
-                    </span>
-                    <span class="metric-sub">{{ status.heart_rate ? 'Monitoring active' : 'Awaiting data' }}</span>
-                  </div>
+                <div class="metric-body metric-body--circular">
+                  <CircularProgress :value="heartRateProgress" :size="120" :strokeWidth="9" :primaryColor="heartRateArcColor" secondaryColor="rgba(255,255,255,0.07)">
+                    <div class="cp-center-content">
+                      <div class="heart-wrap cp-heart">
+                        <div class="heart-glow" :style="{ backgroundColor: currentHeartColor }"></div>
+                        <img :src="currentHeartImage" class="heart-img" alt="heart" />
+                      </div>
+                      <span class="cp-val" :style="{ color: heartRateArcColor }">{{ status.heart_rate || '—' }}<span v-if="status.heart_rate" class="cp-unit"> bpm</span></span>
+                    </div>
+                  </CircularProgress>
                 </div>
               </div>
             </div>
@@ -1897,7 +1967,8 @@ watch(
               </div>
               <div class="profile-avatar-row">
                 <div class="profile-avatar">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+                  <img v-if="profilePicUrl" :src="profilePicUrl" class="profile-avatar-img" alt="avatar" @error="(e) => e.target.style.display='none'" />
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
                 </div>
                 <div>
                   <div class="profile-name">{{ userInfo.name || authStore.user?.name || '—' }}</div>
@@ -1905,10 +1976,10 @@ watch(
                 </div>
               </div>
               <div class="profile-grid">
-                <div class="profile-item"><span class="pkey">Email</span><span class="pval">{{ userInfo.email || authStore.user?.email || '—' }}</span></div>
-                <div class="profile-item"><span class="pkey">Age</span><span class="pval">{{ userAge != null ? userAge + ' yrs' : '—' }}</span></div>
-                <div class="profile-item"><span class="pkey">Born</span><span class="pval">{{ userInfo.birth_date ? new Date(userInfo.birth_date).toLocaleDateString() : '—' }}</span></div>
-                <div class="profile-item"><span class="pkey">Member since</span><span class="pval">{{ userInfo.created_at ? new Date(userInfo.created_at).toLocaleDateString() : '—' }}</span></div>
+                <div class="profile-item"><span class="pkey">Email</span><span class="pval"><HyperText :text="userInfo.email || authStore.user?.email || '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="profile-item"><span class="pkey">Age</span><span class="pval"><HyperText :text="userAge != null ? userAge + ' yrs' : '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="profile-item"><span class="pkey">Born</span><span class="pval"><HyperText :text="userInfo.birth_date ? new Date(userInfo.birth_date).toLocaleDateString() : '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="profile-item"><span class="pkey">Member since</span><span class="pval"><HyperText :text="userInfo.created_at ? new Date(userInfo.created_at).toLocaleDateString() : '—'" :trigger="tabSwitchKey" /></span></div>
               </div>
             </div>
 
@@ -1932,15 +2003,15 @@ watch(
                   </thead>
                   <tbody>
                     <tr v-for="event in events" :key="event.id">
-                      <td class="ev-name">{{ event.name }}</td>
+                      <td class="ev-name"><HyperText :text="event.name" :trigger="tabSwitchKey" /></td>
                       <td>
                         <span
                           :class="['type-badge', isAlertEvent(event) ? 'type-badge--alert' : 'type-badge--ok']"
                           :style="isAlertEvent(event) ? { backgroundColor: currentAlertColor, transition: 'background-color 90ms linear' } : {}"
-                        >{{ event.type }}</span>
+                        ><HyperText :text="event.type" :trigger="tabSwitchKey" /></span>
                       </td>
-                      <td class="ev-desc">{{ event.description }}</td>
-                      <td class="ev-time">{{ new Date(event.created_at).toLocaleString() }}</td>
+                      <td class="ev-desc"><HyperText :text="event.description || ''" :trigger="tabSwitchKey" /></td>
+                      <td class="ev-time"><HyperText :text="new Date(event.created_at).toLocaleString()" :trigger="tabSwitchKey" /></td>
                     </tr>
                   </tbody>
                 </table>
@@ -2107,24 +2178,39 @@ watch(
 
             <!-- stat cards -->
             <div class="ev-stats-row">
-              <div class="ev-stat-card">
-                <span class="ev-stat-num">{{ eventStats.total }}</span>
+              <div class="ev-stat-card" style="--i:0">
+                <div class="ev-stat-icon" style="background:rgba(255,255,255,0.06)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </div>
+                <span class="ev-stat-num"><HyperText :text="String(eventStats.total)" :trigger="tabSwitchKey" /></span>
                 <span class="ev-stat-label">Total Events</span>
               </div>
-              <div class="ev-stat-card ev-stat-card--alert">
-                <span class="ev-stat-num" :style="{ color: '#ef4444' }">{{ eventStats.sos }}</span>
+              <div class="ev-stat-card ev-stat-card--alert" style="--i:1">
+                <div class="ev-stat-icon" style="background:rgba(239,68,68,0.12)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                </div>
+                <span class="ev-stat-num" style="color:#ef4444"><HyperText :text="String(eventStats.sos)" :trigger="tabSwitchKey" /></span>
                 <span class="ev-stat-label">SOS</span>
               </div>
-              <div class="ev-stat-card">
-                <span class="ev-stat-num" :style="{ color: '#f97316' }">{{ eventStats.fall }}</span>
+              <div class="ev-stat-card" style="--i:2">
+                <div class="ev-stat-icon" style="background:rgba(249,115,22,0.12)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
+                </div>
+                <span class="ev-stat-num" style="color:#f97316"><HyperText :text="String(eventStats.fall)" :trigger="tabSwitchKey" /></span>
                 <span class="ev-stat-label">Falls</span>
               </div>
-              <div class="ev-stat-card">
-                <span class="ev-stat-num" :style="{ color: '#f59e0b' }">{{ eventStats.battery }}</span>
+              <div class="ev-stat-card" style="--i:3">
+                <div class="ev-stat-icon" style="background:rgba(245,158,11,0.12)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+                </div>
+                <span class="ev-stat-num" style="color:#f59e0b"><HyperText :text="String(eventStats.battery)" :trigger="tabSwitchKey" /></span>
                 <span class="ev-stat-label">Battery</span>
               </div>
-              <div class="ev-stat-card">
-                <span class="ev-stat-num" :style="{ color: '#4f8ff7' }">{{ eventStats.geofenceEvts }}</span>
+              <div class="ev-stat-card" style="--i:4">
+                <div class="ev-stat-icon" style="background:rgba(79,143,247,0.12)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f8ff7" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
+                </div>
+                <span class="ev-stat-num" style="color:#4f8ff7"><HyperText :text="String(eventStats.geofenceEvts)" :trigger="tabSwitchKey" /></span>
                 <span class="ev-stat-label">Geofence</span>
               </div>
             </div>
@@ -2203,15 +2289,15 @@ watch(
                   <thead><tr><th>Event</th><th>Type</th><th>Description</th><th>Time</th></tr></thead>
                   <tbody>
                     <tr v-for="event in events" :key="event.id">
-                      <td class="ev-name">{{ event.name }}</td>
+                      <td class="ev-name"><HyperText :text="event.name" :trigger="tabSwitchKey" /></td>
                       <td>
                         <span
                           :class="['type-badge', isAlertEvent(event) ? 'type-badge--alert' : 'type-badge--ok']"
                           :style="isAlertEvent(event) ? { backgroundColor: currentAlertColor, transition: 'background-color 90ms linear' } : {}"
-                        >{{ event.type }}</span>
+                        ><HyperText :text="event.type" :trigger="tabSwitchKey" /></span>
                       </td>
-                      <td class="ev-desc">{{ event.description }}</td>
-                      <td class="ev-time">{{ new Date(event.created_at).toLocaleString() }}</td>
+                      <td class="ev-desc"><HyperText :text="event.description || ''" :trigger="tabSwitchKey" /></td>
+                      <td class="ev-time"><HyperText :text="new Date(event.created_at).toLocaleString()" :trigger="tabSwitchKey" /></td>
                     </tr>
                   </tbody>
                 </table>
@@ -2251,16 +2337,16 @@ watch(
 
               <!-- view mode -->
               <div v-if="!editMode" class="settings-rows">
-                <div class="srow"><span class="skey">Name</span><span class="sval">{{ userInfo.name || authStore.user?.name || '—' }}</span></div>
-                <div class="srow"><span class="skey">Email</span><span class="sval">{{ userInfo.email || authStore.user?.email || '—' }}</span></div>
-                <div class="srow"><span class="skey">Role</span><span class="sval">{{ userInfo.type || authStore.user?.type || '—' }}</span></div>
-                <div class="srow"><span class="skey">Age</span><span class="sval">{{ userAge != null ? userAge + ' years old' : '—' }}</span></div>
-                <div class="srow"><span class="skey">Birth Date</span><span class="sval">{{ userInfo.birth_date ? new Date(userInfo.birth_date).toLocaleDateString() : '—' }}</span></div>
+                <div class="srow"><span class="skey">Name</span><span class="sval"><HyperText :text="userInfo.name || authStore.user?.name || '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Email</span><span class="sval"><HyperText :text="userInfo.email || authStore.user?.email || '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Role</span><span class="sval"><HyperText :text="userInfo.type || authStore.user?.type || '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Age</span><span class="sval"><HyperText :text="userAge != null ? userAge + ' years old' : '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Birth Date</span><span class="sval"><HyperText :text="userInfo.birth_date ? new Date(userInfo.birth_date).toLocaleDateString() : '—'" :trigger="tabSwitchKey" /></span></div>
                 <div class="srow">
                   <span class="skey">Home Location</span>
                   <span class="sval">
-                    <span v-if="homeGeoLabel">{{ homeGeoLabel }}</span>
-                    <span v-if="userInfo.home_lat" class="sval-coords">&nbsp;({{ userInfo.home_lat.toFixed(4) }}, {{ userInfo.home_long.toFixed(4) }})</span>
+                    <HyperText v-if="homeGeoLabel" :text="homeGeoLabel" :trigger="tabSwitchKey" />
+                    <span v-if="userInfo.home_lat" class="sval-coords">&nbsp;(<HyperText :text="userInfo.home_lat.toFixed(4) + ', ' + userInfo.home_long.toFixed(4)" :trigger="tabSwitchKey" />)</span>
                     <span v-if="!userInfo.home_lat && !homeGeoLabel">—</span>
                   </span>
                 </div>
@@ -2348,12 +2434,12 @@ watch(
                 <span class="live-pill-sm"><span class="live-dot"></span>Live</span>
               </div>
               <div class="settings-rows">
-                <div class="srow"><span class="skey">Battery</span><span class="sval" :style="{ color: batteryTextColor }">{{ batteryPercentage }}%</span></div>
-                <div class="srow"><span class="skey">Heart Rate</span><span class="sval" :style="{ color: currentHeartTextColor }">{{ status.heart_rate ? status.heart_rate + ' bpm' : 'No data' }}</span></div>
-                <div class="srow"><span class="skey">Location</span><span class="sval">{{ nearestPlaceLabel || 'No data' }}</span></div>
-                <div class="srow"><span class="skey">Coordinates</span><span class="sval">{{ status.latitude ? status.latitude.toFixed(5) + ', ' + status.longitude.toFixed(5) : '—' }}</span></div>
-                <div class="srow"><span class="skey">Last Update</span><span class="sval">{{ status.created_at ? new Date(status.created_at).toLocaleTimeString() : '—' }}</span></div>
-                <div class="srow"><span class="skey">Safety Zones</span><span class="sval">{{ geofences.length }} configured</span></div>
+                <div class="srow"><span class="skey">Battery</span><span class="sval" :style="{ color: batteryTextColor }"><HyperText :text="batteryPercentage + '%'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Heart Rate</span><span class="sval" :style="{ color: currentHeartTextColor }"><HyperText :text="status.heart_rate ? status.heart_rate + ' bpm' : 'No data'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Location</span><span class="sval"><HyperText :text="nearestPlaceLabel || 'No data'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Coordinates</span><span class="sval"><HyperText :text="status.latitude ? status.latitude.toFixed(5) + ', ' + status.longitude.toFixed(5) : '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Last Update</span><span class="sval"><HyperText :text="status.created_at ? new Date(status.created_at).toLocaleTimeString() : '—'" :trigger="tabSwitchKey" /></span></div>
+                <div class="srow"><span class="skey">Safety Zones</span><span class="sval"><HyperText :text="geofences.length + ' configured'" :trigger="tabSwitchKey" /></span></div>
               </div>
             </div>
 
@@ -2389,18 +2475,27 @@ watch(
 <style scoped>
 /* ── design tokens ── */
 :root {
-  --bg:      #080810;
-  --surf:    #0e0e18;
-  --surf2:   #13131f;
-  --border:  rgba(255,255,255,0.07);
-  --border2: rgba(255,255,255,0.14);
-  --text:    #ffffff;
-  --muted:   #ffffff;
-  --dim:     #c8c8d8;
-  --accent:  #4f8ff7;
-  --r:       20px;
-  --r-sm:    14px;
-  --r-xs:    10px;
+  --bg:       #07070f;
+  --surf:     #0b0b1a;
+  --surf2:    #101022;
+  --surf3:    #15152a;
+  --border:   rgba(255,255,255,0.06);
+  --border2:  rgba(255,255,255,0.11);
+  --text:     #f0f0ff;
+  --muted:    rgba(180,180,210,0.55);
+  --dim:      #b8b8d0;
+  --accent:   #4f8ff7;
+  --accent2:  #a855f7;
+  --success:  #22c55e;
+  --danger:   #ef4444;
+  --warning:  #f59e0b;
+  --r:        28px;
+  --r-sm:     20px;
+  --r-xs:     14px;
+  --shadow-sm: 0 2px 12px rgba(0,0,0,0.35);
+  --shadow:    0 8px 32px rgba(0,0,0,0.45);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.55);
+  --glow:      0 0 24px rgba(79,143,247,0.12);
 }
 
 /* ── shell ── */
@@ -2409,6 +2504,8 @@ watch(
   flex-direction: row;
   min-height: 100vh;
   background: var(--bg);
+  background-image: radial-gradient(ellipse 120% 80% at 60% -20%, rgba(79,143,247,0.045) 0%, transparent 60%),
+                    radial-gradient(ellipse 60% 50% at 0% 80%, rgba(168,85,247,0.03) 0%, transparent 55%);
   color: var(--text);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
@@ -2420,13 +2517,16 @@ watch(
   height: 100vh;
   position: sticky;
   top: 0;
-  background: #060610;
-  border-right: 1px solid var(--border);
+  background: rgba(5,5,14,0.72);
+  backdrop-filter: blur(40px) saturate(1.4);
+  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  border-right: 1px solid rgba(255,255,255,0.07);
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 16px 0;
   z-index: 30;
+  box-shadow: 2px 0 20px rgba(0,0,0,0.3);
 }
 
 .sidebar-logo {
@@ -2460,7 +2560,7 @@ watch(
 .nav-btn {
   width: 52px;
   height: 52px;
-  border-radius: 16px;
+  border-radius: 18px;
   border: none;
   background: transparent;
   color: #c8c8d8;
@@ -2487,13 +2587,24 @@ watch(
 }
 
 .nav-btn--active {
-  background: rgba(79,143,247,0.16);
+  background: rgba(79,143,247,0.14);
   color: #4f8ff7;
-  box-shadow: 0 0 0 1px rgba(79,143,247,0.3);
+  box-shadow: 0 0 0 1px rgba(79,143,247,0.22);
+}
+
+.nav-btn--active::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 20%;
+  height: 60%;
+  width: 3px;
+  background: linear-gradient(180deg, #4f8ff7, #a855f7);
+  border-radius: 3px 0 0 3px;
 }
 
 .nav-btn--active:hover {
-  box-shadow: 0 4px 18px rgba(79,143,247,0.3), 0 0 0 1px rgba(79,143,247,0.3);
+  box-shadow: 0 4px 18px rgba(79,143,247,0.28), 0 0 0 1px rgba(79,143,247,0.28);
 }
 
 .nav-btn--logout {
@@ -2526,9 +2637,11 @@ watch(
 /* ── topbar ── */
 .topbar {
   height: 60px;
-  background: rgba(8,8,16,0.92);
-  backdrop-filter: blur(24px) saturate(1.4);
-  border-bottom: 1px solid var(--border);
+  background: rgba(7,7,16,0.72);
+  backdrop-filter: blur(40px) saturate(1.5);
+  -webkit-backdrop-filter: blur(40px) saturate(1.5);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03), 0 4px 20px rgba(0,0,0,0.25);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -2551,8 +2664,11 @@ watch(
 
 .page-title {
   font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
+  font-weight: 800;
+  background: linear-gradient(90deg, #f0f0ff, rgba(180,180,220,0.8));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin: 0;
   letter-spacing: 0.01em;
 }
@@ -2561,7 +2677,7 @@ watch(
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 6px;
   padding: 0 20px;
   min-width: 0;
   overflow: hidden;
@@ -2571,9 +2687,56 @@ watch(
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding-left: 20px;
   border-left: 1px solid var(--border2);
+}
+
+/* unified pill style */
+.tb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+  color: var(--text);
+}
+.tb-pill:hover {
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.15);
+}
+
+.tb-pill--live {
+  background: rgba(239,68,68,0.12);
+  border-color: rgba(239,68,68,0.28);
+  color: #f87171;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.tb-pill--loc {
+  background: rgba(79,143,247,0.1);
+  border-color: rgba(79,143,247,0.22);
+  max-width: 240px;
+  overflow: hidden;
+}
+
+.tb-pill-icon { opacity: 0.65; flex-shrink: 0; }
+
+.tb-pill-val { line-height: 1; }
+
+.tb-pill-unit {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.65;
 }
 
 .live-pill {
@@ -2602,30 +2765,6 @@ watch(
 @keyframes pulse-dot {
   0%,100% { opacity:1; transform:scale(1); }
   50%      { opacity:.35; transform:scale(.65); }
-}
-
-.tb-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--border2);
-  flex-shrink: 0;
-  margin: 0 10px;
-}
-
-.tb-stat {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.tb-stat svg {
-  opacity: 0.5;
-  flex-shrink: 0;
 }
 
 .bpm-unit {
@@ -2684,7 +2823,7 @@ watch(
 .tb-loc-country {
   flex-shrink: 0;
   padding: 2px 5px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 10px;
   font-weight: 800;
   color: #fff;
@@ -2750,40 +2889,65 @@ watch(
 }
 
 .tab-pane {
-  animation: fade-in 0.2s ease;
+  animation: tab-enter 0.28s cubic-bezier(0.22,1,0.36,1) both;
 }
 
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(4px); }
+@keyframes tab-enter {
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── card base ── */
 .card {
-  background: var(--surf);
-  border: 1px solid var(--border);
+  background: rgba(10,10,26,0.44);
+  backdrop-filter: blur(36px) saturate(1.6);
+  -webkit-backdrop-filter: blur(36px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,0.09);
   border-radius: var(--r);
-  padding: 18px;
+  padding: 20px;
   position: relative;
   overflow: hidden;
   --sx: 50%;
   --sy: 50%;
   --so: 0;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.07) inset, 0 0 0 1px rgba(255,255,255,0.03) inset;
 }
+
+/* spotlight hover */
 .card::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(280px circle at var(--sx) var(--sy), rgba(79,143,247,0.1), transparent 70%);
+  background: radial-gradient(360px circle at var(--sx) var(--sy), rgba(79,143,247,0.07), transparent 65%);
   opacity: var(--so);
-  transition: opacity 0.3s;
+  transition: opacity 0.35s;
   pointer-events: none;
   border-radius: inherit;
   z-index: 0;
 }
+
+/* always-on top shimmer — subtle by default, brighter on hover */
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(79,143,247,0.28), rgba(168,85,247,0.2), transparent);
+  border-radius: 1px;
+  opacity: 0.35;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.card:hover::after { opacity: 1; }
+
 .card > * { position: relative; z-index: 1; }
-.card:hover { border-color: rgba(79,143,247,0.25); box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
+.card:hover {
+  border-color: rgba(79,143,247,0.22);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(79,143,247,0.08), 0 1px 0 rgba(255,255,255,0.08) inset;
+}
 
 .card-head {
   display: flex;
@@ -2835,6 +2999,105 @@ watch(
   color: var(--dim);
 }
 
+/* ── dashboard hero ── */
+.dash-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  background: rgba(10,10,22,0.7);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 24px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.05) inset;
+}
+
+.dash-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 120% at 0% 50%, rgba(79,143,247,0.07) 0%, transparent 60%),
+              radial-gradient(ellipse 60% 100% at 100% 50%, rgba(168,85,247,0.05) 0%, transparent 55%);
+  pointer-events: none;
+}
+
+.dash-hero-left { position: relative; z-index: 1; }
+
+.dash-hero-greet {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(180,180,210,0.65);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+.dash-hero-name {
+  font-weight: 700;
+}
+
+.dash-hero-tagline {
+  font-size: clamp(20px, 2.2vw, 28px);
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.dash-hero-right {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  padding: 14px 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.dh-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0 18px;
+}
+
+.dh-stat-val {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.dh-stat-unit {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.6;
+}
+
+.dh-stat-key {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(180,180,210,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+}
+
+.dh-divider {
+  width: 1px;
+  height: 36px;
+  background: rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+
 /* ── dashboard grid ── */
 .dash-grid {
   display: grid;
@@ -2867,10 +3130,11 @@ watch(
 
 /* ── mini map ── */
 .mini-map {
-  height: 240px;
+  height: 260px;
   width: 100%;
-  border-radius: var(--r-sm);
+  border-radius: 18px;
   overflow: hidden;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06);
 }
 
 /* ── address bar ── */
@@ -2894,7 +3158,7 @@ watch(
   padding: 4px 10px;
   background: rgba(255,255,255,0.07);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 8px;
+  border-radius: 12px;
   color: #e2e2f0;
   font-size: 11px;
   font-weight: 600;
@@ -2903,7 +3167,7 @@ watch(
   white-space: nowrap;
 }
 .gmaps-btn:hover { background: rgba(255,255,255,0.13); transform: translateY(-1px); }
-.gmaps-icon { width: 13px; height: 13px; border-radius: 2px; }
+.gmaps-icon { width: 13px; height: 13px; border-radius: 3px; }
 
 .loc-radar-wrap {
   position: relative;
@@ -2965,23 +3229,25 @@ watch(
 .loc-detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  margin-top: 10px;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  border: 1px solid var(--border);
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .loc-detail-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  background: rgba(255,255,255,0.02);
+  gap: 3px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--r-xs);
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .loc-detail-item:hover {
-  background: rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(79,143,247,0.18);
 }
 
 .loc-detail-key {
@@ -3068,26 +3334,32 @@ watch(
 }
 
 .loc-weather-strip {
-  margin-top: 10px;
+  margin-top: 12px;
   border-radius: var(--r-sm);
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(8px);
   overflow: hidden;
 }
 
 .loc-weather-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--border);
+  gap: 0;
 }
 
 .loc-wx-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  background: rgba(255,255,255,0.02);
+  gap: 3px;
+  padding: 10px 12px;
+  background: transparent;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.2s;
 }
+
+.loc-wx-item:last-child { border-right: none; }
+.loc-wx-item:hover { background: rgba(255,255,255,0.04); }
 
 .loc-wx-key {
   font-size: 9px;
@@ -3109,9 +3381,9 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   background: rgba(255,255,255,0.02);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255,255,255,0.06);
 }
 
 .loc-pavement-dot {
@@ -3145,11 +3417,29 @@ watch(
   gap: 14px;
 }
 
-.metric-img {
-  width: 56px;
-  height: 56px;
-  object-fit: contain;
-  flex-shrink: 0;
+.metric-body--circular {
+  justify-content: center;
+  padding: 4px 0 2px;
+}
+
+.cp-center-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.cp-val {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.cp-unit {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.7;
 }
 
 .metric-val-col {
@@ -3178,26 +3468,17 @@ watch(
   color: var(--dim);
 }
 
-.bar-track {
-  height: 4px;
-  width: 100%;
-  background: rgba(255,255,255,0.08);
-  border-radius: 100px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: 100px;
-  transition: width 0.5s ease, background 0.3s ease;
-}
-
 /* ── heart animation ── */
 .heart-wrap {
   position: relative;
   width: 56px;
   height: 56px;
   flex-shrink: 0;
+}
+
+.cp-heart {
+  width: 36px;
+  height: 36px;
 }
 
 .heart-glow {
@@ -3236,6 +3517,14 @@ watch(
   justify-content: center;
   color: var(--accent);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.profile-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .profile-name {
@@ -3261,13 +3550,23 @@ watch(
 .profile-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 
 .profile-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--r-xs);
+  transition: background 0.2s;
+}
+
+.profile-item:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(79,143,247,0.15);
 }
 
 .pkey {
@@ -3308,18 +3607,39 @@ watch(
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 16px 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  transition: transform 0.2s, box-shadow 0.2s;
+  padding: 20px 16px;
+  background: rgba(10,10,26,0.44);
+  backdrop-filter: blur(36px) saturate(1.6);
+  -webkit-backdrop-filter: blur(36px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: var(--r);
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.06) inset;
 }
-.ev-stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+.ev-stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.4), 0 0 0 1px rgba(79,143,247,0.1);
+  border-color: rgba(79,143,247,0.18);
+}
+.ev-stat-card--alert:hover { border-color: rgba(239,68,68,0.25); }
+.ev-stat-card { animation: stat-enter 0.4s cubic-bezier(0.22,1,0.36,1) both; animation-delay: calc(var(--i, 0) * 60ms); }
+@keyframes stat-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ev-stat-icon {
+  width: 38px; height: 38px;
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
 .ev-stat-num {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
   color: #fff;
   line-height: 1;
+  letter-spacing: -0.02em;
 }
 .ev-stat-label {
   font-size: 10px;
@@ -3396,7 +3716,7 @@ watch(
   padding: 8px 10px;
   background: rgba(239,68,68,0.06);
   border: 1px solid rgba(239,68,68,0.12);
-  border-radius: 10px;
+  border-radius: 16px;
 }
 .ev-alert-dot {
   width: 7px; height: 7px;
@@ -3452,28 +3772,30 @@ watch(
 
 .events-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0 4px;
   font-size: 12px;
 }
 
 .events-table thead th {
-  padding: 6px 10px;
+  padding: 6px 12px;
   text-align: left;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--dim);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
 }
 
 .events-table tbody tr {
-  border-bottom: 1px solid var(--border);
-  transition: background 0.1s;
+  background: rgba(255,255,255,0.03);
+  border-radius: var(--r-xs);
+  transition: background 0.15s;
 }
 
 .events-table tbody tr:hover {
-  background: rgba(255,255,255,0.03);
+  background: rgba(79,143,247,0.07);
 }
 
 .events-table tbody tr:last-child {
@@ -3481,10 +3803,13 @@ watch(
 }
 
 .events-table td {
-  padding: 8px 10px;
+  padding: 9px 12px;
   color: var(--text);
   vertical-align: middle;
 }
+
+.events-table td:first-child { border-radius: var(--r-xs) 0 0 var(--r-xs); }
+.events-table td:last-child  { border-radius: 0 var(--r-xs) var(--r-xs) 0; }
 
 .ev-name {
   font-weight: 600;
@@ -3619,23 +3944,25 @@ watch(
 
 .field-input {
   width: 100%;
-  padding: 9px 12px;
+  padding: 10px 13px;
   border-radius: var(--r-sm);
-  border: 1px solid var(--border2);
+  border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.04);
   color: var(--text);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  font-family: inherit;
 }
 
 .field-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(79,143,247,0.15);
+  border-color: rgba(79,143,247,0.55);
+  background: rgba(79,143,247,0.04);
+  box-shadow: 0 0 0 3px rgba(79,143,247,0.12);
 }
 
 .field-input::placeholder {
-  color: var(--dim);
+  color: rgba(180,180,210,0.35);
 }
 
 .slider {
@@ -3700,7 +4027,7 @@ watch(
   margin-left: auto;
   background: rgba(255,255,255,0.07);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--text);
   font-size: 11px;
   font-weight: 600;
@@ -3727,44 +4054,66 @@ watch(
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s, background 0.15s;
+  transition: all 0.2s;
   white-space: nowrap;
   color: var(--text);
+  position: relative;
+  overflow: hidden;
 }
 
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.38;
   cursor: not-allowed;
 }
 
 .btn-primary {
-  background: var(--accent);
+  background: linear-gradient(135deg, #4f8ff7 0%, #6366f1 100%);
   color: #fff;
   flex: 1;
+  box-shadow: 0 3px 12px rgba(79,143,247,0.28);
 }
+
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,0.07), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.5s ease;
+}
+
+.btn-primary:not(:disabled):hover::after { transform: translateX(100%); }
 
 .btn-primary:not(:disabled):hover {
-  opacity: 0.88;
+  background: linear-gradient(135deg, #6aa3ff 0%, #7577ff 100%);
+  box-shadow: 0 5px 20px rgba(79,143,247,0.42);
+  transform: translateY(-1px);
 }
 
+.btn-primary:not(:disabled):active { transform: translateY(0); }
+
 .btn-ghost {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid var(--border2);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
   color: var(--text);
+  backdrop-filter: blur(8px);
 }
 
 .btn-ghost:not(:disabled):hover {
-  background: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.16);
 }
 
 .btn-danger {
-  background: rgba(239,68,68,0.12);
-  border: 1px solid rgba(239,68,68,0.25);
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.22);
   color: #f87171;
 }
 
 .btn-danger:not(:disabled):hover {
-  background: rgba(239,68,68,0.2);
+  background: rgba(239,68,68,0.18);
+  box-shadow: 0 4px 14px rgba(239,68,68,0.18);
+  transform: translateY(-1px);
 }
 
 .gf-msg {
@@ -3802,7 +4151,7 @@ watch(
 .gf-remove-all {
   background: rgba(239,68,68,0.1);
   border: 1px solid rgba(239,68,68,0.2);
-  border-radius: 6px;
+  border-radius: 10px;
   color: #fca5a5;
   font-size: 10px;
   font-weight: 600;
@@ -3934,19 +4283,26 @@ watch(
 .settings-rows {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 6px;
 }
 
 .srow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--r-xs);
+  transition: background 0.2s;
+}
+
+.srow:hover {
+  background: rgba(255,255,255,0.07);
 }
 
 .srow:last-child {
-  border-bottom: none;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
 .skey {
@@ -3985,7 +4341,7 @@ watch(
   width: 48px;
   height: 48px;
   object-fit: contain;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px solid var(--border2);
   background: rgba(255,255,255,0.04);
   padding: 4px;
@@ -3996,7 +4352,7 @@ watch(
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px dashed var(--border2);
   color: var(--dim);
   font-size: 12px;
@@ -4382,7 +4738,7 @@ watch(
   gap: 10px;
   width: 100%;
   padding: 9px 12px;
-  border-radius: 12px;
+  border-radius: 14px;
   border: none;
   background: none;
   color: #c8c8d8;
@@ -4431,23 +4787,23 @@ watch(
 .notif-toast {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 14px;
+  gap: 11px;
+  padding: 13px 16px;
+  border-radius: 18px;
   border: 1px solid;
-  min-width: 280px;
-  max-width: 360px;
+  min-width: 290px;
+  max-width: 370px;
   pointer-events: all;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 16px 50px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.05) inset;
 }
 .notif-toast--success {
-  background: rgba(16,185,129,0.12);
-  border-color: rgba(16,185,129,0.3);
+  background: rgba(16,185,129,0.1);
+  border-color: rgba(16,185,129,0.25);
 }
 .notif-toast--error {
-  background: rgba(239,68,68,0.12);
-  border-color: rgba(239,68,68,0.3);
+  background: rgba(239,68,68,0.1);
+  border-color: rgba(239,68,68,0.25);
 }
 
 .notif-icon {
@@ -4498,8 +4854,8 @@ watch(
   position: fixed;
   inset: 0;
   z-index: 9997;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(6px);
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4507,13 +4863,14 @@ watch(
 }
 
 .modal-box {
-  background: #0e0e1a;
+  background: rgba(9,9,22,0.97);
+  backdrop-filter: blur(32px);
   border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 22px;
-  padding: 28px;
+  border-radius: 28px;
+  padding: 30px;
   max-width: 420px;
   width: 100%;
-  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  box-shadow: 0 40px 100px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.06) inset;
 }
 
 .modal-head {
@@ -4542,7 +4899,7 @@ watch(
   color: #fbbf24;
   background: rgba(245,158,11,0.08);
   border: 1px solid rgba(245,158,11,0.2);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 10px 14px;
   margin: 0 0 22px;
   line-height: 1.5;
@@ -4563,7 +4920,7 @@ watch(
 .btn-icon-sm {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--border2);
   background: rgba(255,255,255,0.05);
   color: var(--dim);

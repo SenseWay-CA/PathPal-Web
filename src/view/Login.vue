@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import FlipWords from '@/components/FlipWords.vue'
 
 const REVIEWS = [
   { name: 'Priya Sharma',       handle: 'Toronto, ON',      body: 'My father uses the smart cane every day. The real-time alerts give our whole family peace of mind. A true life saver.' },
@@ -70,10 +71,12 @@ const handleLogin = async () => {
         <span class="brand-name">SenseWay</span>
       </div>
       <div class="hero-text">
-        Surrender your steps.<br />
-        Obey the algorithm.<br />
+        Surrender your
+        <FlipWords :words="['steps.', 'moves.', 'data.', 'trail.', 'location.']" :duration="2800" /><br />
+        Obey the
+        <FlipWords :words="['algorithm.', 'system.', 'machine.', 'network.', 'AI.']" :duration="3100" /><br />
         We know where<br />
-        you're going.
+        <FlipWords :words="[`you're going.`, 'you live.', 'you sleep.', 'you wander.', 'you hide.']" :duration="3400" />
       </div>
 
       <!-- testimonial marquee -->
@@ -191,7 +194,7 @@ const handleLogin = async () => {
 .login-root {
   display: flex;
   min-height: 100vh;
-  background: #080810;
+  background: #07070f;
   color: #ffffff;
   font-family: 'Inter', -apple-system, sans-serif;
 }
@@ -199,8 +202,8 @@ const handleLogin = async () => {
 /* ── left panel ── */
 .login-left {
   flex: 1;
-  background: #060610;
-  border-right: 1px solid rgba(255,255,255,0.06);
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(79,143,247,0.07) 0%, transparent 70%), #060610;
+  border-right: 1px solid rgba(255,255,255,0.05);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -267,10 +270,17 @@ const handleLogin = async () => {
 .login-card {
   width: 100%;
   max-width: 400px;
-  background: #0e0e18;
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 24px;
+  background: rgba(11, 11, 24, 0.92);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 28px;
   padding: 36px 32px;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.05) inset;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.login-card:hover {
+  border-color: rgba(79,143,247,0.15);
+  box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 40px rgba(79,143,247,0.06), 0 1px 0 rgba(255,255,255,0.05) inset;
 }
 
 .login-card-head {
@@ -355,21 +365,22 @@ const handleLogin = async () => {
 
 .field-input {
   width: 100%;
-  padding: 11px 14px 11px 38px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
+  padding: 12px 14px 12px 40px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
   color: #ffffff;
   font-size: 14px;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   box-sizing: border-box;
 }
 
 .field-input:focus {
-  border-color: #4f8ff7;
-  background: rgba(79,143,247,0.06);
+  border-color: rgba(79,143,247,0.6);
+  background: rgba(79,143,247,0.05);
+  box-shadow: 0 0 0 3px rgba(79,143,247,0.1);
 }
 
 .field-input::placeholder {
@@ -399,29 +410,47 @@ const handleLogin = async () => {
 /* ── submit button ── */
 .login-btn {
   width: 100%;
-  padding: 12px;
-  background: #4f8ff7;
+  padding: 13px;
+  background: linear-gradient(135deg, #4f8ff7 0%, #6366f1 100%);
   color: #ffffff;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+  transition: all 0.2s;
   font-family: inherit;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(79,143,247,0.3);
+}
+
+.login-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.08) 50%, transparent 100%);
+  transform: translateX(-100%);
+  transition: transform 0.5s ease;
+}
+
+.login-btn:hover:not(:disabled)::after {
+  transform: translateX(100%);
 }
 
 .login-btn:hover:not(:disabled) {
-  background: #3d7fe6;
+  background: linear-gradient(135deg, #6aa3ff 0%, #7577ff 100%);
+  box-shadow: 0 6px 28px rgba(79,143,247,0.45);
   transform: translateY(-1px);
 }
 
 .login-btn:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(79,143,247,0.3);
 }
 
 .login-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
@@ -518,15 +547,20 @@ const handleLogin = async () => {
 }
 
 .review-card {
-  width: 220px;
+  width: 230px;
   flex-shrink: 0;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 16px;
-  padding: 14px 16px;
-  transition: border-color 0.2s;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  padding: 15px 17px;
+  transition: border-color 0.25s, transform 0.2s, background 0.2s;
+  backdrop-filter: blur(8px);
 }
-.review-card:hover { border-color: rgba(79,143,247,0.25); }
+.review-card:hover {
+  border-color: rgba(79,143,247,0.22);
+  background: rgba(79,143,247,0.04);
+  transform: translateY(-2px);
+}
 .review-body {
   font-size: 12px;
   color: rgba(200,200,216,0.75);
