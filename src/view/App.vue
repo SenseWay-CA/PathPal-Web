@@ -5,7 +5,8 @@ import FlipWords from '@/components/FlipWords.vue'
 import CircularProgress from '@/components/CircularProgress.vue'
 import HyperText from '@/components/HyperText.vue'
 import AppConfetti from '@/components/AppConfetti.vue'
-import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, LayoutDashboard, Target, Settings, LogOut, User, Mail, Camera, Bell, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save, Briefcase, GraduationCap, Hospital, Pill, Leaf, ShoppingCart, Dumbbell, Layers } from 'lucide-vue-next'
+import AnimatedBattery from '@/components/AnimatedBattery.vue'
+import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, Settings, LogOut, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save, Briefcase, GraduationCap, Hospital, Pill, Leaf, ShoppingCart, Dumbbell, Layers } from 'lucide-vue-next'
 
 // ── click-outside directive ──
 const vClickOutside = {
@@ -56,13 +57,7 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                           C O N C E P T :  S E N S E W A Y
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    app core
+// app core
 
 const url = 'https://api.senseway.ca'
 const authStore = useAuthStore()
@@ -76,9 +71,26 @@ const handleLogout = async () => {
 // user id from auth store
 const id = computed(() => authStore.user?.user_id || '')
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    navigation / tabs
+// signal: tracks when the last successful status fetch arrived
+const lastDataReceived = ref(0)
+const signalNow = ref(Date.now())
+
+// 3 = great (<5s), 2 = ok (<12s), 1 = weak (<25s), 0 = offline
+const signalBars = computed(() => {
+  if (lastDataReceived.value === 0) return 0
+  const age = signalNow.value - lastDataReceived.value
+  if (age < 5000)  return 3
+  if (age < 12000) return 2
+  if (age < 25000) return 1
+  return 0
+})
+
+// tick signalNow every second so signalBars stays fresh
+let signalTick = null
+onMounted(() => { signalTick = setInterval(() => { signalNow.value = Date.now() }, 1000) })
+onUnmounted(() => clearInterval(signalTick))
+
+// navigation / tabs
 
 const activeTab = ref('dashboard')
 const tabSwitchKey = ref(0)
@@ -108,9 +120,7 @@ function setTab(tab) {
   })
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    map instances
+// map instances
 
 const map = ref(null)
 const marker = ref(null)
@@ -120,12 +130,13 @@ const miniMarker = ref(null)
 // custom marker persisted in localstorage
 const customMarkerUrl = ref(localStorage.getItem('sw_custom_marker') || '')
 
-function buildIcon(url) {
+function buildIcon(url, scale = 1) {
+  const sz = Math.round(38 * scale)
   return L.icon({
     iconUrl: url || 'https://i.gyazo.com/2c2f86cbde1c24b59b380f1da714df48.png',
-    iconSize: [38, 38],
-    iconAnchor: [19, 19],
-    popupAnchor: [0, -24],
+    iconSize: [sz, sz],
+    iconAnchor: [sz / 2, sz / 2],
+    popupAnchor: [0, -(sz / 2 + 4)],
     shadowUrl: null,
   })
 }
@@ -137,9 +148,7 @@ watch(customMarkerUrl, (newUrl) => {
   if (miniMarker.value) miniMarker.value.setIcon(icon)
 })
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    status / events / user data
+// status / events / user data
 
 const events = ref([])
 
@@ -165,9 +174,7 @@ const userInfo = ref({
   password: '',
 })
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    geofence state
+// geofence state
 
 const geofenceMarker = ref(null)
 const geofenceCircle = ref(null)
@@ -187,9 +194,7 @@ const addZoneMode = ref(false)
 
 let geofenceMessageTimer = null
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    zone presets
+// zone type presets and colors
 
 const ZONE_PRESETS = [
   { id: 'home',     label: 'Home'      },
@@ -244,25 +249,26 @@ function detectZoneType(name) {
   return match ? match.id : 'other'
 }
 
-function buildZoneDivIcon(zoneType) {
-  const color  = ZONE_COLORS[zoneType] || ZONE_COLORS.other
-  const paths  = ZONE_SVG[zoneType]   || ZONE_SVG.other
+function buildZoneDivIcon(zoneType, scale = 1) {
+  const sz  = Math.round(40 * scale)
+  const isz = Math.round(19 * scale)
+  const bw  = Math.max(1.5, 2.5 * scale).toFixed(1)
+  const color = ZONE_COLORS[zoneType] || ZONE_COLORS.other
+  const paths = ZONE_SVG[zoneType]   || ZONE_SVG.other
   const pinHtml =
-    `<div style="width:40px;height:40px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);background:${color};border:2.5px solid rgba(255,255,255,0.9);box-shadow:0 6px 20px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">`
-    + `<svg style="transform:rotate(45deg)" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="19" height="19">${paths}</svg>`
+    `<div style="width:${sz}px;height:${sz}px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);background:${color};border:${bw}px solid rgba(255,255,255,0.9);box-shadow:0 6px 20px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">`
+    + `<svg style="transform:rotate(45deg)" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${isz}" height="${isz}">${paths}</svg>`
     + `</div>`
   return L.divIcon({
     html: pinHtml,
     className: '',
-    iconSize:   [40, 40],
-    iconAnchor: [20, 40],
-    popupAnchor:[0, -44],
+    iconSize:   [sz, sz],
+    iconAnchor: [sz / 2, sz],
+    popupAnchor:[0, -(sz + 4)],
   })
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    map tile layer toggle
+// map tile layer toggle
 
 const mapTileMode = ref('dark')
 let geoTileLayer = null
@@ -270,11 +276,11 @@ let geoTileLayer = null
 const TILE_LAYERS = {
   dark: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© SenseWay 2026', updateWhenIdle: true, keepBuffer: 2 },
+    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© SenseWay 2026', updateWhenIdle: true, keepBuffer: 4, updateWhenZooming: false },
   },
   map: {
     url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap · © CARTO', updateWhenIdle: true, keepBuffer: 2 },
+    opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap · © CARTO', updateWhenIdle: true, keepBuffer: 4, updateWhenZooming: false },
   },
 }
 
@@ -307,19 +313,23 @@ function openGoogleMaps() {
 
 function switchTileLayer(mode) {
   if (!map.value) return
-  // remove old tile layer
+  // freeze the current view — prevents any drift during layer swap
+  const center = map.value.getCenter()
+  const zoom   = map.value.getZoom()
+
   if (geoTileLayer) {
     map.value.removeLayer(geoTileLayer)
     geoTileLayer = null
   }
+
   const { url, opts } = TILE_LAYERS[mode] || TILE_LAYERS.dark
-  geoTileLayer = L.tileLayer(url, opts)
-  // insert tile layer at the bottom so markers stay on top
+  geoTileLayer = L.tileLayer(url, { ...opts, keepBuffer: 4 })
   geoTileLayer.addTo(map.value)
   geoTileLayer.bringToBack()
   mapTileMode.value = mode
-  // force Leaflet to re-request tiles after layer swap
-  map.value.invalidateSize()
+
+  // restore exact view in case leaflet drifted during the swap
+  map.value.setView(center, zoom, { animate: false })
 }
 
 function showGeofenceMessage(msg, type) {
@@ -340,9 +350,7 @@ watch(geofenceRadius, (v) => {
   else if (v > 1000) geofenceRadius.value = 1000
 })
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    reverse geocoding
+// reverse geocoding
 
 const nearestPlace = ref({
   name: '', road: '', building: '', neighbourhood: '',
@@ -396,9 +404,7 @@ const countryCode = computed(() => {
   return null
 })
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    weather + location details
+// weather + location details
 
 const weatherData = ref({
   temp: null, code: null, wind: null,
@@ -482,12 +488,20 @@ async function fetchWeather(lat, lon) {
 }
 
 let lastGeocodeFetch = 0
+let lastGeocodeCoords = { lat: null, lon: null }
 
 async function fetchNearestPlace(lat, lon) {
   if (lat == null || lon == null) return
-  // throttle geocoding to once per 10 seconds
+  // throttle to once per 10 seconds
   if (Date.now() - lastGeocodeFetch < 10000) return
+  // skip if position moved less than ~55 m (0.0005°) — avoids redundant calls
+  if (lastGeocodeCoords.lat != null) {
+    const dlat = Math.abs(lat - lastGeocodeCoords.lat)
+    const dlon = Math.abs(lon - lastGeocodeCoords.lon)
+    if (dlat < 0.0005 && dlon < 0.0005) return
+  }
   lastGeocodeFetch = Date.now()
+  lastGeocodeCoords = { lat, lon }
   try {
     const resp = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&extratags=1&namedetails=1`,
@@ -531,9 +545,7 @@ async function fetchNearestPlace(lat, lon) {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    computed vitals
+// computed vitals
 
 const userAge = computed(() => {
   if (!userInfo.value.birth_date) return null
@@ -552,19 +564,6 @@ const batteryPercentage = computed(() => {
   return Math.min(v, 100)
 })
 
-const batteryImage = computed(() => {
-  const p = batteryPercentage.value
-  if (p >= 90) return 'https://i.gyazo.com/d8f07b4c5caf5893defeee42c04484f6.png'
-  if (p >= 80) return 'https://i.gyazo.com/640c65fca45a2c0eb65e9eafec43f636.png'
-  if (p >= 70) return 'https://i.gyazo.com/1879fc61702ee3e90d1e10d620ccb366.png'
-  if (p >= 60) return 'https://i.gyazo.com/911be89cf04aaa67fe96815c8c66e8e2.png'
-  if (p >= 50) return 'https://i.gyazo.com/ff743192cab5d12bf688fc99a665c5ec.png'
-  if (p >= 40) return 'https://i.gyazo.com/f21adce8288ccb2c90e2aeba63e4fbea.png'
-  if (p >= 30) return 'https://i.gyazo.com/3477adab0848a4bc3bb8376963160303.png'
-  if (p >= 20) return 'https://i.gyazo.com/3ed3d7e883949741fe58b6c4e59e4a5c.png'
-  if (p >= 10) return 'https://i.gyazo.com/cb03b04add5f0b325df799f8b3e76cbf.png'
-  return 'https://i.gyazo.com/fbab5c2c7805c1756e5d1afd1cdbdd59.png'
-})
 
 const batteryTextColor = computed(() => {
   const p = batteryPercentage.value
@@ -727,9 +726,7 @@ onUnmounted(() => {
   clearInterval(alertColorInterval)
 })
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    api fetchers
+// api fetchers
 
 async function getUserInfo(newID) {
   const uid = (newID || '').trim()
@@ -769,12 +766,10 @@ async function getStatus(currentId) {
     const response = await fetch(`${url}/status?user_id=${currentId}`)
     if (!response.ok) throw new Error(`status: ${response.status}`)
     status.value = await response.json()
+    lastDataReceived.value = Date.now()
     const lat = status.value.latitude
     const lon = status.value.longitude
-    if (lat == null || lon == null || (lat === 0 && lon === 0)) {
-      console.warn('invalid or zero coordinates received')
-      return
-    }
+    if (lat == null || lon == null || (lat === 0 && lon === 0)) return
     initializeOrUpdateMap(lat, lon)
     initMiniMap(lat, lon)
     fetchNearestPlace(lat, lon)
@@ -784,9 +779,7 @@ async function getStatus(currentId) {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    map: geofence (full)
+// map: geofence (full)
 
 function initializeOrUpdateMap(lat, lon) {
   const mapElement = document.getElementById('map')
@@ -802,7 +795,8 @@ function initializeOrUpdateMap(lat, lon) {
       const { url, opts } = TILE_LAYERS[mapTileMode.value] || TILE_LAYERS.dark
       geoTileLayer = L.tileLayer(url, opts).addTo(map.value)
       geoTileLayer.bringToBack()
-      marker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value) }).addTo(map.value)
+      marker.value = L.marker([lat, lon], { icon: buildIcon(customMarkerUrl.value, currentZoomScale) }).addTo(map.value)
+      map.value.on('zoomend', updateMarkerScales)
     } catch (err) {
       console.error('map init failed:', err)
     }
@@ -814,9 +808,7 @@ function initializeOrUpdateMap(lat, lon) {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    map: dashboard (mini)
+// map: dashboard (mini)
 
 function initMiniMap(lat, lon) {
   const el = document.getElementById('map-mini')
@@ -857,9 +849,7 @@ function initMiniMap(lat, lon) {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    geofence: map helpers
+// geofence: map helpers
 
 function normalizeGeofenceName(name) {
   return (name || '').trim() || 'Geofence'
@@ -877,6 +867,7 @@ function clearAllGeofenceLayers() {
     if (map.value && layer) map.value.removeLayer(layer)
   })
   geofenceLayers.clear()
+  fencePrints.clear()
   geofenceIconLayers.forEach((m) => {
     if (map.value && m) map.value.removeLayer(m)
   })
@@ -987,43 +978,66 @@ function updateRadius() {
 
 // track saved-fence icon markers separately
 const geofenceIconLayers = new Map()
+// fingerprint per fence to skip needless redraws
+const fencePrints = new Map()
+// current zoom-based scale applied to all markers
+let currentZoomScale = 1
+
+// build a string fingerprint for a fence — used to detect changes without full redraw
+function fencePrint(fence, isSelected) {
+  return `${fence.latitude},${fence.longitude},${fence.radius},${fence.name},${isSelected}`
+}
 
 function renderGeofencesOnMap() {
   if (!map.value) return
-  const knownIds = new Set(geofences.value.map((item) => item.id))
-  geofenceLayers.forEach((layer, layerId) => {
-    if (!knownIds.has(layerId)) {
-      if (map.value) map.value.removeLayer(layer)
-      geofenceLayers.delete(layerId)
+
+  const knownIds = new Set(geofences.value.map((f) => f.id))
+
+  // remove layers for fences that no longer exist
+  geofenceLayers.forEach((layer, id) => {
+    if (!knownIds.has(id)) {
+      map.value.removeLayer(layer)
+      geofenceLayers.delete(id)
+      fencePrints.delete(id)
     }
   })
-  geofenceIconLayers.forEach((m, layerId) => {
-    if (!knownIds.has(layerId)) {
-      if (map.value) map.value.removeLayer(m)
-      geofenceIconLayers.delete(layerId)
+  geofenceIconLayers.forEach((m, id) => {
+    if (!knownIds.has(id)) {
+      map.value.removeLayer(m)
+      geofenceIconLayers.delete(id)
     }
   })
+
   geofences.value.forEach((fence) => {
     if (!fence?.id) return
-    const prev = geofenceLayers.get(fence.id)
-    if (prev && map.value) map.value.removeLayer(prev)
-    const prevIcon = geofenceIconLayers.get(fence.id)
-    if (prevIcon && map.value) map.value.removeLayer(prevIcon)
     const isSelected = selectedGeofenceId.value === fence.id
+    const print = fencePrint(fence, isSelected)
+
+    // skip unchanged fences — no flicker, no wasted work
+    if (fencePrints.get(fence.id) === print && geofenceLayers.has(fence.id)) return
+
+    // remove old layers for this fence before replacing
+    const prev = geofenceLayers.get(fence.id)
+    if (prev) map.value.removeLayer(prev)
+    const prevIcon = geofenceIconLayers.get(fence.id)
+    if (prevIcon) map.value.removeLayer(prevIcon)
+
     const zoneType = detectZoneType(fence.name)
     const zoneColor = ZONE_COLORS[zoneType] || ZONE_COLORS.other
+
     const layer = L.circle([fence.latitude, fence.longitude], {
       radius: Number(fence.radius),
-      color: isSelected ? '#f97316' : zoneColor,
-      fillColor: isSelected ? '#fb923c' : zoneColor,
+      color:       isSelected ? '#f97316' : zoneColor,
+      fillColor:   isSelected ? '#fb923c' : zoneColor,
       fillOpacity: 0.15,
-      weight: isSelected ? 3 : 2,
+      weight:      isSelected ? 3 : 2,
     }).addTo(map.value)
-    // center icon marker
+
     const iconMarker = L.marker([fence.latitude, fence.longitude], {
-      icon: buildZoneDivIcon(zoneType),
+      icon: buildZoneDivIcon(zoneType, currentZoomScale),
       interactive: false,
     }).addTo(map.value)
+
     geofenceIconLayers.set(fence.id, iconMarker)
     layer.bindPopup(buildGeofencePopupHTML(fence))
     layer.on('click', () => selectExistingGeofence(fence.id, false))
@@ -1034,7 +1048,27 @@ function renderGeofencesOnMap() {
       if (delBtn) delBtn.onclick = () => deleteSelectedGeofence(fence.id)
     })
     geofenceLayers.set(fence.id, layer)
+    fencePrints.set(fence.id, print)
   })
+}
+
+// scale factor based on zoom level (base zoom 17)
+function getZoomScale(zoom) {
+  return Math.max(0.5, Math.min(2.0, zoom / 17))
+}
+
+// update all marker icons when zoom changes — markers scale with the map
+function updateMarkerScales() {
+  if (!map.value) return
+  currentZoomScale = getZoomScale(map.value.getZoom())
+  if (marker.value) marker.value.setIcon(buildIcon(customMarkerUrl.value, currentZoomScale))
+  geofenceIconLayers.forEach((m, id) => {
+    const fence = geofences.value.find((f) => f.id === id)
+    if (fence) m.setIcon(buildZoneDivIcon(detectZoneType(fence.name), currentZoomScale))
+  })
+  if (geofenceMarker.value) {
+    geofenceMarker.value.setIcon(buildZoneDivIcon(selectedZoneType.value, currentZoomScale))
+  }
 }
 
 function selectExistingGeofence(fenceId, closePopup = false) {
@@ -1053,14 +1087,11 @@ function selectExistingGeofence(fenceId, closePopup = false) {
   if (closePopup) geofenceLayers.get(selected.id)?.closePopup()
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    geofence: crud
+// geofence: crud
 
 async function fetchGeofences() {
   const userId = (id.value || '').trim()
   if (!userId) return
-  console.log('[fetchGeofences] user id:', userId)
   geofenceLoading.value = true
   try {
     const result = await listGeofences(userId)
@@ -1181,9 +1212,7 @@ async function deleteSelectedGeofence(fenceId = geofence.value?.id) {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    settings state
+// settings state
 
 const customMarkerSaved = ref(false)
 
@@ -1204,9 +1233,7 @@ function clearCustomMarker() {
   if (miniMarker.value) miniMarker.value.setIcon(icon)
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                                    lifecycle
+// lifecycle
 
 let dataInterval = null
 
@@ -1229,8 +1256,8 @@ onMounted(async () => {
   }
 })
 
-// re-render geofences when list changes — handles map/data race
-watch(geofences, () => renderGeofencesOnMap(), { deep: true })
+// re-render when geofences array is replaced — handles map/data race on first load
+watch(geofences, () => renderGeofencesOnMap())
 
 watch(
   id,
@@ -1271,7 +1298,7 @@ onUnmounted(() => {
   if (topoAnimFrame) cancelAnimationFrame(topoAnimFrame)
 })
 
-// ── topography canvas + loading screen ──
+// topography canvas background + loading screen
 onMounted(() => {
   nextTick(() => {
     const canvas = topoCanvasRef.value
@@ -1290,6 +1317,17 @@ onMounted(() => {
     }
     resize()
     window.addEventListener('resize', resize)
+
+    // pause animation when tab is not visible to save resources
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(topoAnimFrame)
+        topoAnimFrame = null
+      } else if (!topoAnimFrame) {
+        drawTopo()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     function getH(x, t) {
       const s = 0.003
@@ -1347,11 +1385,7 @@ onMounted(() => {
   setTimeout(() => { isLoading.value = false }, 3000)
 })
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                    N O T I F I C A T I O N S  +  C O N F I R M
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// notifications + confirm dialog
 
 let notifIdCounter = 0
 const notifications = ref([])
@@ -1383,11 +1417,7 @@ function confirmCancel() {
   confirmDialog.value.show = false
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                    A V A T A R  D R O P D O W N
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// avatar dropdown
 
 const showAvatarMenu = ref(false)
 
@@ -1399,11 +1429,7 @@ function closeAvatarMenu() {
   showAvatarMenu.value = false
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                    P R O F I L E  P I C T U R E
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// profile picture
 
 const profilePicUrl = ref(authStore.user?.avatar_url || localStorage.getItem('sw_profile_pic') || '')
 
@@ -1412,11 +1438,7 @@ function saveProfilePic(url) {
   localStorage.setItem('sw_profile_pic', url)
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                    A C C O U N T  E D I T I N G
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// account editing
 
 const editMode = ref(false)
 const profilePicInput = ref('')
@@ -1508,11 +1530,7 @@ function requestSaveProfile() {
   )
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                    H O M E  L O C A T I O N  G E O C O D I N G
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// home location geocoding
 
 const homeGeoLabel = ref('')
 
@@ -1538,11 +1556,6 @@ watch(
   { immediate: false },
 )
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//
-//                                           C O N C E P T :  S E N S E W A Y
-//
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 </script>
 
 <template>
@@ -1552,14 +1565,15 @@ watch(
   <!-- Confetti layer (fixed, pointer-events none) -->
   <AppConfetti ref="confettiRef" />
 
-  <!-- ==================== notification toasts ==================== -->
+  <!-- notification toasts -->
   <Teleport to="body">
-    <div class="notif-stack">
+    <div class="notif-stack" role="region" aria-live="polite" aria-label="Notifications">
       <TransitionGroup name="notif">
         <div
           v-for="n in notifications"
           :key="n.id"
           :class="['notif-toast', `notif-toast--${n.type}`]"
+          role="status"
         >
           <CheckCircle v-if="n.type === 'success'" :size="16" class="notif-icon" />
           <AlertTriangle v-else :size="16" class="notif-icon" />
@@ -1567,22 +1581,22 @@ watch(
             <span class="notif-title">{{ n.title }}</span>
             <span v-if="n.message" class="notif-msg">{{ n.message }}</span>
           </div>
-          <button class="notif-close" @click="dismissNotif(n.id)"><X :size="13" /></button>
+          <button class="notif-close" @click="dismissNotif(n.id)" :aria-label="'Dismiss: ' + n.title"><X :size="13" /></button>
         </div>
       </TransitionGroup>
     </div>
   </Teleport>
 
-  <!-- ==================== confirm dialog ==================== -->
+  <!-- confirm dialog -->
   <Teleport to="body">
     <Transition name="modal-fade">
-      <div v-if="confirmDialog.show" class="modal-backdrop" @click.self="confirmCancel">
+      <div v-if="confirmDialog.show" class="modal-backdrop" @click.self="confirmCancel" role="alertdialog" aria-modal="true" :aria-labelledby="'modal-title'" :aria-describedby="'modal-desc'">
         <div class="modal-box">
           <div class="modal-head">
             <AlertTriangle :size="20" class="modal-icon" />
-            <h3 class="modal-title">{{ confirmDialog.title }}</h3>
+            <h3 class="modal-title" id="modal-title">{{ confirmDialog.title }}</h3>
           </div>
-          <p class="modal-body">{{ confirmDialog.message }}</p>
+          <p class="modal-body" id="modal-desc">{{ confirmDialog.message }}</p>
           <p v-if="confirmDialog.warning" class="modal-warning">{{ confirmDialog.warning }}</p>
           <div class="modal-foot">
             <button class="btn btn-ghost" @click="confirmCancel">Cancel</button>
@@ -1634,10 +1648,12 @@ watch(
           <span class="nav-label">Zones</span>
         </button>
 
-        <button :class="['nav-btn', { 'nav-btn--active': activeTab === 'events' }]" @click="setTab('events')" title="Events">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <button :class="['nav-btn', { 'nav-btn--active': activeTab === 'events' }]" @click="setTab('events')" title="Events" style="position:relative">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" :class="events.some(e => isAlertEvent(e)) && activeTab !== 'events' ? 'icon-bell-ring' : ''">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
           </svg>
+          <!-- red dot when there are unread alert events -->
+          <span v-if="events.some(e => isAlertEvent(e)) && activeTab !== 'events'" class="nav-alert-dot"></span>
           <span class="nav-label">Events</span>
         </button>
 
@@ -1678,15 +1694,25 @@ watch(
               <span class="live-dot"></span>LIVE
             </span>
 
+            <!-- signal strength -->
+            <span class="tb-pill tb-pill--signal" :class="signalBars === 0 ? 'tb-pill--signal-off' : ''">
+              <span class="signal-bars" :data-bars="signalBars" aria-label="Signal strength">
+                <span class="signal-bar" :class="{ 'signal-bar--on': signalBars >= 1 }"></span>
+                <span class="signal-bar" :class="{ 'signal-bar--on': signalBars >= 2 }"></span>
+                <span class="signal-bar" :class="{ 'signal-bar--on': signalBars >= 3 }"></span>
+              </span>
+              <span class="tb-pill-val signal-label">{{ signalBars === 3 ? 'Strong' : signalBars === 2 ? 'Good' : signalBars === 1 ? 'Weak' : 'No Signal' }}</span>
+            </span>
+
             <!-- battery -->
-            <span class="tb-pill" :style="{ '--pill-accent': batteryTextColor }">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="tb-pill-icon"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+            <span class="tb-pill" :class="{ 'tb-pill--battery-warn': batteryPercentage < 20 }" :style="{ '--pill-accent': batteryTextColor }">
+              <AnimatedBattery :percentage="batteryPercentage" :color="batteryTextColor" :size="14" />
               <span class="tb-pill-val" :style="{ color: batteryTextColor }">{{ batteryPercentage }}<span class="tb-pill-unit">%</span></span>
             </span>
 
             <!-- heart rate -->
             <span class="tb-pill" :style="{ '--pill-accent': currentHeartTextColor }">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" :stroke="currentHeartTextColor" stroke-width="2.2" class="tb-pill-icon"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" :stroke="currentHeartTextColor" stroke-width="2.2" class="tb-pill-icon icon-heartbeat"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
               <span class="tb-pill-val" :style="{ color: currentHeartTextColor }">{{ status.heart_rate || '—' }}<span v-if="status.heart_rate" class="tb-pill-unit"> bpm</span></span>
             </span>
 
@@ -5186,5 +5212,115 @@ watch(
   background: rgba(8,8,16,0.7);
   color: rgba(200,200,216,0.4);
   font-size: 9px;
+}
+
+/* visible focus ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid #4f8ff7;
+  outline-offset: 2px;
+}
+.nav-btn:focus-visible,
+.btn:focus-visible,
+.hp-btn:focus-visible,
+.notif-close:focus-visible,
+.avd-item:focus-visible {
+  outline: 2px solid #4f8ff7;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(79,143,247,0.2);
+}
+
+/* ── signal bars pill ─────────────────────────────────────── */
+.tb-pill--signal {
+  --pill-accent: #22c55e;
+  gap: 5px;
+}
+.tb-pill--signal-off {
+  --pill-accent: #ef4444;
+  opacity: 0.7;
+}
+.signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.signal-bar {
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(255,255,255,0.15);
+  transition: background 0.4s, height 0.4s;
+}
+.signal-bar:nth-child(1) { height: 4px; }
+.signal-bar:nth-child(2) { height: 7px; }
+.signal-bar:nth-child(3) { height: 11px; }
+.signal-bar--on { background: var(--pill-accent, #22c55e); }
+.signal-label { font-size: 10px; font-weight: 700; }
+
+/* ── heartbeat icon in topbar ─────────────────────────────── */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  14%       { transform: scale(1.3); }
+  28%       { transform: scale(1); }
+  42%       { transform: scale(1.2); }
+  70%       { transform: scale(1); }
+}
+.icon-heartbeat {
+  animation: heartbeat 1.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* ── battery pill pulse ring when critically low ─────────── */
+.tb-pill--battery-warn {
+  box-shadow: 0 0 0 0 rgba(239,68,68,0.5);
+  animation: battery-pill-ring 2s ease-out infinite;
+}
+@keyframes battery-pill-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.45); }
+  70%  { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
+/* ── bell wiggle when alert events exist ─────────────────── */
+@keyframes bell-ring {
+  0%   { transform: rotate(0deg); }
+  10%  { transform: rotate(18deg); }
+  20%  { transform: rotate(-16deg); }
+  30%  { transform: rotate(14deg); }
+  40%  { transform: rotate(-10deg); }
+  50%  { transform: rotate(6deg); }
+  60%  { transform: rotate(-4deg); }
+  70%  { transform: rotate(2deg); }
+  80%  { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+.icon-bell-ring {
+  animation: bell-ring 2.5s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+/* ── red dot badge on events nav button ──────────────────── */
+.nav-alert-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 1.5px rgba(8,8,20,0.9);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.4); opacity: 0.7; }
+}
+
+/* respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 </style>

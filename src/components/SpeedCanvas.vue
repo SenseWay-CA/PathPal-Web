@@ -4,10 +4,9 @@ import { ref, onMounted, onUnmounted } from 'vue'
 const canvasRef = ref(null)
 
 // ── palette ──────────────────────────────────────────────────────────────────
-const CORE   = ['#4f8ff7', '#818cf8', '#38bdf8', '#22d3ee']   // blue/cyan family
-const ACCENT = ['#a855f7', '#c084fc', '#e879f9']               // purple family
-const WARM   = ['#f472b6', '#fb923c', '#fbbf24']               // warm pops (rare)
-const SAFETY = ['#ef4444', '#22c55e', '#fbbf24']               // traffic-light nods
+const CORE   = ['#4f8ff7', '#818cf8', '#38bdf8', '#22d3ee']
+const ACCENT = ['#a855f7', '#c084fc', '#e879f9']
+const WARM   = ['#f472b6', '#fb923c', '#fbbf24']
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)] }
 function rand(a, b) { return a + Math.random() * (b - a) }
@@ -81,7 +80,7 @@ onMounted(() => {
   const canvas = canvasRef.value
   const ctx    = canvas.getContext('2d')
   let W, H, streaks = [], pulses = [], wins = [], raf = null
-  let baseSpeed = 2, targetSpeed = 2, isBoosted = false, boostTimer = null
+  let baseSpeed = 2, targetSpeed = 2, boostTimer = null
   let t = 0, nextPulse = 180  // frames until next ring pulse
 
   function resize() {
@@ -268,18 +267,28 @@ onMounted(() => {
   draw()
 
   canvas.addEventListener('click', () => {
-    isBoosted = true
     targetSpeed = 12
-    // flash a burst of pulses
     for (let i = 0; i < 3; i++) pulses.push(makePulse(W, H))
     clearTimeout(boostTimer)
-    boostTimer = setTimeout(() => { isBoosted = false; targetSpeed = 2 }, 2400)
+    boostTimer = setTimeout(() => { targetSpeed = 2 }, 2400)
   })
+
+  // pause animation when tab is hidden to save cpu/gpu
+  const onVisibility = () => {
+    if (document.hidden) {
+      cancelAnimationFrame(raf)
+      raf = null
+    } else if (!raf) {
+      draw()
+    }
+  }
+  document.addEventListener('visibilitychange', onVisibility)
 
   onUnmounted(() => {
     cancelAnimationFrame(raf)
     ro.disconnect()
     clearTimeout(boostTimer)
+    document.removeEventListener('visibilitychange', onVisibility)
   })
 })
 </script>

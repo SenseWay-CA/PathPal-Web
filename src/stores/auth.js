@@ -41,14 +41,12 @@ export const useAuthStore = defineStore('auth', () => {
       isAuthenticated.value = true
       user.value = userData
       localStorage.setItem(LS_USER_KEY, JSON.stringify(userData))
-      console.log('Login successful:', userData)
       return { success: true, user: userData }
     } else {
       isAuthenticated.value = false
       user.value = null
       localStorage.removeItem(LS_USER_KEY)
       const errorData = await response.json().catch(() => ({ error: 'Login failed' }))
-      console.error('Login failed:', response.status, errorData)
       return { success: false, error: errorData.error || 'Invalid credentials' }
     }
   }
@@ -69,25 +67,21 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (response.ok) {
       const createdUser = await response.json()
-      console.log('Registration successful:', createdUser)
       return { success: true, user: createdUser }
     } else {
       const errorData = await response.json().catch(() => ({ error: 'Registration failed' }))
-      console.error('Registration failed:', response.status, errorData)
       return { success: false, error: errorData.error || 'Registration failed' }
     }
   }
 
   async function logout() {
-    const response = await fetchWithCredentials(`${API_BASE_URL}/session`, { method: 'DELETE' })
+    await fetchWithCredentials(`${API_BASE_URL}/session`, { method: 'DELETE' })
     isAuthenticated.value = false
     user.value = null
     localStorage.removeItem(LS_USER_KEY)
-    console.log('Logout status:', response.ok)
   }
 
   async function checkAuth() {
-    console.log('Checking auth status...')
     const response = await fetchWithCredentials(`${API_BASE_URL}/session`)
 
     if (response.ok) {
@@ -95,13 +89,11 @@ export const useAuthStore = defineStore('auth', () => {
       isAuthenticated.value = true
       user.value = userData
       localStorage.setItem(LS_USER_KEY, JSON.stringify(userData))
-      console.log('Auth check successful:', userData)
       return true
     } else {
       isAuthenticated.value = false
       user.value = null
       localStorage.removeItem(LS_USER_KEY)
-      console.log('Auth check failed:', response.status)
       return false
     }
   }
