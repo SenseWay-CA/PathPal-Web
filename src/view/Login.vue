@@ -5,14 +5,17 @@ import { useAuthStore } from '@/stores/auth'
 import FlipWords from '@/components/FlipWords.vue'
 
 const REVIEWS = [
+  { name: 'Michael',            handle: 'Tobermory, ON',      body: 'Hi I\'m Michael' },
+  { name: 'Xiu Xiu',            handle: 'San Jose, CA',      body: 'My father kept on falling into the toilet, this life saving cane has kept him on his feet.' },
   { name: 'Priya Sharma',       handle: 'Toronto, ON',      body: 'My father uses the smart cane every day. The real-time alerts give our whole family peace of mind. A true life saver.' },
   { name: 'August Zhang',       handle: 'Richmond Hill, ON', body: 'My grandfather was hesitant about technology but SenseWay changed everything. We helped him set it up in minutes and now he loves his independence.' },
   { name: 'Fatima Malik',       handle: 'Brampton, ON',     body: 'As a caregiver I can monitor my patients remotely. The geofencing zones are so smart and easy to set up.' },
+  { name: 'Gordan Freeman',     handle: 'Pheonix, AZ',      body: 'My old man would sneak out at night into the desert. He would strip naked and just wander for hours. This device malfunctioned and blew up his legs, I guess our problem was solved' },
   { name: 'Sarah Mitchell',     handle: 'Vancouver, BC',    body: 'Bought this for my dad after his hip surgery. The location tracking means I can stop worrying and he can feel free again.' },
   { name: 'Kavya Jayasinghe',   handle: 'Scarborough, ON',  body: 'My aththamma uses this cane every morning walk. The SOS button gave us so much peace of mind — worth every penny.' },
   { name: 'Ravi Krishnamurthy', handle: 'Ottawa, ON',       body: 'We gifted this to my amma and she loves it. Knowing her location always gives the family so much comfort.' },
   { name: 'Wei-Lin Chen',       handle: 'Markham, ON',      body: 'I recommended SenseWay to three other families in our community. The geofencing alerts are incredibly reliable.' },
-  { name: 'Arjun Nair',         handle: 'Mississauga, ON',  body: 'The fall detection saved my grandfather from being alone for hours. SenseWay is incredible technology.' },
+  { name: 'Eli Vance',          handle: 'Seatle, WA',       body: 'My mother’s cataracts got so bad she started treating the neighborhood like a horror movie. She would come home trembling about giant hovering red and yellow monsters lurking on every corner. We almost called an exorcist before realizing she was just picking a fight with the local street signs. This cane’s haptic feedback and obstacle detection helped her realize that the Yellow Blob was not an alien. It was just a Yield sign. Now she navigates the sidewalk without trying to pepper spray the infrastructure.'},
   { name: 'Emma Thompson',      handle: 'Calgary, AB',      body: 'Simple, reliable, life-changing. Dad has more confidence on his walks and I have less anxiety. Can\'t ask for more.' },
   { name: 'Niroshan Perera',    handle: 'Etobicoke, ON',    body: 'Thaaththaa was afraid of falling alone. With SenseWay I check on him every day from my phone — it truly changed our family\'s life.' },
   { name: 'Gurpreet Singh',     handle: 'Surrey, BC',       body: 'Big nana was skeptical at first but now refuses to go anywhere without it. The app is very simple to use.' },
