@@ -15,9 +15,9 @@ const REVIEWS = [
   { name: 'Arjun Nair',         handle: 'Mississauga, ON',  body: 'The fall detection saved my grandfather from being alone for hours. SenseWay is incredible technology.' },
   { name: 'Emma Thompson',      handle: 'Calgary, AB',      body: 'Simple, reliable, life-changing. Dad has more confidence on his walks and I have less anxiety. Can\'t ask for more.' },
   { name: 'Niroshan Perera',    handle: 'Etobicoke, ON',    body: 'Thaaththaa was afraid of falling alone. With SenseWay I check on him every day from my phone — it truly changed our family\'s life.' },
-  { name: 'Gurpreet Singh',     handle: 'Surrey, BC',       body: 'My nana was skeptical at first but now refuses to go anywhere without it. The app is very simple to use.' },
+  { name: 'Gurpreet Singh',     handle: 'Surrey, BC',       body: 'Big nana was skeptical at first but now refuses to go anywhere without it. The app is very simple to use.' },
   { name: 'Liang Wei',          handle: 'Burnaby, BC',      body: 'The heart rate monitoring and location history features are outstanding. My mother walks daily now with full confidence.' },
-  { name: 'Meera Chandran',     handle: 'Hamilton, ON',     body: 'As a doctor I recommend SenseWay to every elderly patient\'s family. The health monitoring is first-class.' },
+  { name: 'Meera Chandran',     handle: 'Hamilton, ON',     body: 'As a doctor from India I recommend SenseWay to every elderly patient\'s family. The health monitoring is first-class.' },
   { name: 'James O\'Brien',     handle: 'Halifax, NS',      body: 'Set up took under 10 minutes. The battery life is amazing and the alerts are instant. My mum loves her independence back.' },
   { name: 'Dilrukshi Wijesinghe', handle: 'Mississauga, ON', body: 'After amma\'s stroke we were so worried. SenseWay gave us real-time safety and her the freedom she deserved.' },
   { name: 'Ananya Venkatesh',   handle: 'Brampton, ON',     body: 'We set up safety zones around the neighbourhood. The instant geofence alerts are a game changer for our family.' },
@@ -33,24 +33,30 @@ const router = useRouter()
 const email = ref('')
 const password = ref('')
 const error = ref('')
-const rememberMe = ref(false)
+const rememberCredentials = ref(false)
 const loading = ref(false)
 
 onMounted(() => {
   const saved = localStorage.getItem('sw_remember_email')
   if (saved) {
     email.value = saved
-    rememberMe.value = true
+    rememberCredentials.value = true
+  }
+  const savedPw = localStorage.getItem('sw_remember_pw')
+  if (savedPw) {
+    try { password.value = atob(savedPw) } catch (_) {}
   }
 })
 
 const handleLogin = async () => {
   error.value = ''
   loading.value = true
-  if (rememberMe.value) {
+  if (rememberCredentials.value) {
     localStorage.setItem('sw_remember_email', email.value)
+    localStorage.setItem('sw_remember_pw', btoa(password.value))
   } else {
     localStorage.removeItem('sw_remember_email')
+    localStorage.removeItem('sw_remember_pw')
   }
   const result = await authStore.login(email.value, password.value)
   loading.value = false
@@ -163,8 +169,8 @@ const handleLogin = async () => {
 
           <!-- remember me -->
           <label class="remember-row">
-            <input type="checkbox" v-model="rememberMe" class="remember-check" />
-            <span class="remember-label">Remember my email</span>
+            <input type="checkbox" v-model="rememberCredentials" class="remember-check" />
+            <span class="remember-label">Remember my credentials</span>
           </label>
 
           <button type="submit" class="login-btn" :disabled="loading">

@@ -5,6 +5,8 @@ import FlipWords from '@/components/FlipWords.vue'
 import CircularProgress from '@/components/CircularProgress.vue'
 import HyperText from '@/components/HyperText.vue'
 import AppConfetti from '@/components/AppConfetti.vue'
+import SpringCalendar from '@/components/SpringCalendar.vue'
+import { listAppointments, createAppointment as createAppointmentApi, deleteAppointment as deleteAppointmentApi } from '@/services/appointmentsApi'
 import AnimatedBattery from '@/components/AnimatedBattery.vue'
 import { Sun, CloudSun, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning, Cloud, Thermometer, Wind, Droplets, MapPin, Building2, Navigation2, Hash, Mountain, Globe, Home, Settings, LogOut, CheckCircle, AlertTriangle, X, ChevronDown, Edit2, Save, Briefcase, GraduationCap, Hospital, Pill, Leaf, ShoppingCart, Dumbbell, Layers } from 'lucide-vue-next'
 
@@ -99,6 +101,7 @@ const pageTitle = computed(() => {
   if (activeTab.value === 'dashboard') return 'Dashboard'
   if (activeTab.value === 'geofence') return 'Safety Zones'
   if (activeTab.value === 'events') return 'Events'
+  if (activeTab.value === 'calendar') return 'Calendar'
   if (activeTab.value === 'settings') return 'Settings'
   return 'SenseWay'
 })
@@ -116,6 +119,9 @@ function setTab(tab) {
     }
     if (tab === 'events' && id.value) {
       getEvents(id.value)
+    }
+    if (tab === 'calendar') {
+      loadCalendarData()
     }
   })
 }
@@ -883,6 +889,10 @@ function resetGeofenceDraft() {
   customZoneName.value = ''
   geofenceName.value = 'Home'
   addZoneMode.value = false
+  isTimedFence.value    = false
+  fenceStartAt.value    = ''
+  fenceEndAt.value      = ''
+  fenceTimedTitle.value = ''
 }
 
 function upsertGeofenceInState(saved) {
@@ -1133,13 +1143,27 @@ async function saveGeofence() {
   const finalName = selectedZoneType.value === 'other'
     ? normalizeGeofenceName(customZoneName.value)
     : normalizeGeofenceName(geofenceName.value)
+  const isTimed = isTimedFence.value && fenceStartAt.value && fenceEndAt.value && fenceTimedTitle.value.trim()
   const payload = {
     user_id: id.value,
     name: finalName,
-    enabled: true,
+    // timed fences start disabled; checkTimedFences activates them on schedule
+    enabled: isTimed ? false : true,
     latitude: markerLatLng.lat,
     longitude: markerLatLng.lng,
     radius,
+    ...(geofenceId
+      ? {
+          set_timed: true,
+          starts_at: isTimed ? new Date(fenceStartAt.value).toISOString() : null,
+          ends_at:   isTimed ? new Date(fenceEndAt.value).toISOString()   : null,
+          timed_title: isTimed ? fenceTimedTitle.value.trim() : '',
+        }
+      : {
+          starts_at: isTimed ? new Date(fenceStartAt.value).toISOString() : null,
+          ends_at:   isTimed ? new Date(fenceEndAt.value).toISOString()   : null,
+          timed_title: isTimed ? fenceTimedTitle.value.trim() : '',
+        }),
   }
   geofenceSaving.value = true
   try {
@@ -1212,6 +1236,122 @@ async function deleteSelectedGeofence(fenceId = geofence.value?.id) {
   }
 }
 
+// calendar state
+
+const calendarAppointments = ref([])
+// timed fences are derived from geofences that have a starts_at field (server-stored)
+const calendarTimedFences = computed(() =>
+  geofences.value
+    .filter(f => f.starts_at)
+    .map(f => ({
+      id: f.id,
+      fenceServerId: f.id,
+      title: f.timed_title || f.name,
+      startAt: f.starts_at,
+      endAt: f.ends_at,
+    }))
+)
+
+const showApptModal        = ref(false)
+const apptModalDate        = ref(null)
+
+const apptForm = ref({
+  title: '', location: '', description: '', startAt: '', endAt: '', fenceId: null,
+})
+
+async function loadCalendarData() {
+  const uid = id.value
+  if (!uid) return
+  try {
+    calendarAppointments.value = await listAppointments(uid)
+  } catch (_) {
+    calendarAppointments.value = []
+  }
+}
+
+function openApptModal(date) {
+  // pre-fill start time to the given date at 9:00 AM
+  const d = new Date(date)
+  d.setHours(9, 0, 0, 0)
+  // format as datetime-local string
+  const pad = (n) => String(n).padStart(2,'0')
+  const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  apptForm.value = { title:'', location:'', description:'', startAt:iso, endAt:'', fenceId:null }
+  apptModalDate.value = date
+  showApptModal.value = true
+}
+
+async function saveAppt() {
+  const uid = id.value
+  if (!uid || !apptForm.value.title.trim() || !apptForm.value.startAt) return
+  showApptModal.value = false
+  try {
+    await createAppointmentApi({
+      user_id: uid,
+      title: apptForm.value.title.trim(),
+      location: apptForm.value.location.trim(),
+      description: apptForm.value.description.trim(),
+      start_at: new Date(apptForm.value.startAt).toISOString(),
+      end_at: apptForm.value.endAt ? new Date(apptForm.value.endAt).toISOString() : null,
+      fence_id: apptForm.value.fenceId || null,
+    })
+    loadCalendarData()
+  } catch (e) {
+    console.error('Failed to save appointment:', e)
+  }
+}
+
+async function deleteAppt(apptId) {
+  try {
+    await deleteAppointmentApi(apptId, id.value)
+    loadCalendarData()
+  } catch (e) {
+    console.error('Failed to delete appointment:', e)
+  }
+}
+
+// timed geofence state
+
+const isTimedFence   = ref(false)
+const fenceStartAt   = ref('')
+const fenceEndAt     = ref('')
+const fenceTimedTitle = ref('')
+
+function minDateTimeLocal() {
+  // minimum allowed: 5 minutes from now
+  const d = new Date(Date.now() + 5 * 60 * 1000)
+  const pad = (n) => String(n).padStart(2,'0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function deleteTimedFenceFromCalendar(fenceId) {
+  const uid = id.value
+  deleteGeofenceApi(fenceId, uid)
+    .then(() => removeGeofenceFromState(fenceId))
+    .catch(() => {})
+}
+
+// check timed fences every poll cycle — enable/disable based on current time
+function checkTimedFences() {
+  const uid = id.value
+  if (!uid) return
+  const now = new Date()
+  for (const fence of geofences.value) {
+    if (!fence.starts_at) continue
+    const start = new Date(fence.starts_at)
+    const end   = new Date(fence.ends_at)
+    if (now >= start && now <= end && !fence.enabled) {
+      // time window active — enable the fence
+      updateGeofenceApi(fence.id, { user_id: uid, enabled: true })
+        .then(() => { fence.enabled = true })
+    } else if (now > end) {
+      // expired — delete it from server and local state
+      deleteGeofenceApi(fence.id, uid)
+        .then(() => removeGeofenceFromState(fence.id))
+    }
+  }
+}
+
 // settings state
 
 const customMarkerSaved = ref(false)
@@ -1248,10 +1388,12 @@ onMounted(async () => {
     getEvents(userId)
     getStatus(userId)
     fetchGeofences()
+    loadCalendarData()
     if (dataInterval) clearInterval(dataInterval)
     dataInterval = setInterval(() => {
       getEvents(userId)
       getStatus(userId)
+      checkTimedFences()
     }, 3000)
   }
 })
@@ -1277,6 +1419,7 @@ watch(
       dataInterval = setInterval(() => {
         getEvents(newID)
         getStatus(newID)
+        checkTimedFences()
       }, 3000)
     }
   },
@@ -1655,6 +1798,13 @@ watch(
           <!-- red dot when there are unread alert events -->
           <span v-if="events.some(e => isAlertEvent(e)) && activeTab !== 'events'" class="nav-alert-dot"></span>
           <span class="nav-label">Events</span>
+        </button>
+
+        <button :class="['nav-btn', { 'nav-btn--active': activeTab === 'calendar' }]" @click="setTab('calendar')" title="Calendar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span class="nav-label">Calendar</span>
         </button>
 
         <button :class="['nav-btn', { 'nav-btn--active': activeTab === 'settings' }]" @click="setTab('settings')" title="Settings">
@@ -2147,6 +2297,37 @@ watch(
                     <input type="range" min="25" max="1000" step="25" v-model="geofenceRadius" @input="updateRadius" class="slider" />
                     <div class="slider-ticks"><span>25m</span><span>500m</span><span>1km</span></div>
                   </div>
+
+                  <!-- timed zone toggle -->
+                  <div class="field">
+                    <label class="timed-toggle-row">
+                      <div class="timed-toggle-track" :class="{ 'timed-toggle-track--on': isTimedFence }" @click="isTimedFence = !isTimedFence">
+                        <div class="timed-toggle-thumb"></div>
+                      </div>
+                      <span class="field-label" style="margin-bottom:0">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Timed Zone
+                      </span>
+                    </label>
+                    <p class="field-hint">Schedule this zone to activate and deactivate automatically.</p>
+                  </div>
+
+                  <!-- timed zone fields (visible when timed is on) -->
+                  <template v-if="isTimedFence">
+                    <div class="field">
+                      <label class="field-label">Zone Title (for calendar)</label>
+                      <input v-model.trim="fenceTimedTitle" type="text" maxlength="80" class="field-input" placeholder="e.g. Doctor's Appointment Zone" />
+                    </div>
+                    <div class="field">
+                      <label class="field-label">Activates At</label>
+                      <input v-model="fenceStartAt" type="datetime-local" class="field-input" :min="minDateTimeLocal()" />
+                    </div>
+                    <div class="field">
+                      <label class="field-label">Deactivates At</label>
+                      <input v-model="fenceEndAt" type="datetime-local" class="field-input" :min="fenceStartAt || minDateTimeLocal()" />
+                    </div>
+                  </template>
+
                   <div class="gf-btns">
                     <button @click="saveGeofence" class="btn btn-primary" :disabled="geofenceSaving || geofenceDeleting">
                       {{ geofenceSaving ? 'Saving…' : geofence?.id ? 'Update Zone' : 'Save Zone' }}
@@ -2333,6 +2514,77 @@ watch(
           </div>
         </div>
 
+        <!-- - - - - calendar tab - - - - -->
+        <div v-show="activeTab === 'calendar'" class="tab-pane tab-pane--calendar">
+          <div class="cal-page">
+
+            <div class="cal-layout">
+              <!-- calendar main -->
+              <div class="cal-main">
+                <SpringCalendar
+                  :sys-events="events"
+                  :timed-fences="calendarTimedFences"
+                  :appointments="calendarAppointments"
+                  @add-appointment="openApptModal"
+                  @delete-appointment="deleteAppt"
+                  @delete-timed-fence="deleteTimedFenceFromCalendar"
+                />
+              </div>
+
+              <!-- side panel: upcoming events -->
+              <div class="cal-side">
+                <div class="cal-side-head">
+                  <h3 class="cal-side-title">Upcoming</h3>
+                </div>
+                <div class="cal-upcoming">
+                  <!-- timed fences -->
+                  <div v-if="calendarTimedFences.length" class="cal-upcoming-section">
+                    <p class="cal-upcoming-label">Scheduled Zones</p>
+                    <div v-for="tf in calendarTimedFences" :key="tf.id" class="cal-upcoming-item cal-upcoming-item--gf">
+                      <div class="cal-upcoming-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      </div>
+                      <div class="cal-upcoming-body">
+                        <p class="cal-upcoming-title">{{ tf.title }}</p>
+                        <p class="cal-upcoming-sub">
+                          {{ new Date(tf.startAt).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) }}
+                          {{ new Date(tf.startAt).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true}) }}
+                          &#x2192; {{ new Date(tf.endAt).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true}) }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- appointments -->
+                  <div v-if="calendarAppointments.length" class="cal-upcoming-section">
+                    <p class="cal-upcoming-label">Appointments</p>
+                    <div v-for="a in calendarAppointments.slice().sort((x,y)=>new Date(x.startAt)-new Date(y.startAt))" :key="a.id" class="cal-upcoming-item cal-upcoming-item--appt">
+                      <div class="cal-upcoming-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      </div>
+                      <div class="cal-upcoming-body">
+                        <p class="cal-upcoming-title">{{ a.title }}</p>
+                        <p v-if="a.location" class="cal-upcoming-sub">{{ a.location }}</p>
+                        <p class="cal-upcoming-sub">
+                          {{ new Date(a.startAt).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) }}
+                          &#xB7; {{ new Date(a.startAt).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true}) }}
+                        </p>
+                      </div>
+                      <button class="cal-item-del" @click="deleteAppt(a.id)" type="button" title="Remove">&#x2715;</button>
+                    </div>
+                  </div>
+
+                  <div v-if="!calendarTimedFences.length && !calendarAppointments.length" class="cal-upcoming-empty">
+                    <p>No upcoming events scheduled.</p>
+                    <p style="font-size:11px;opacity:0.5;margin-top:4px">Add appointments using the calendar, or create a timed zone in the Safety Zones tab.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
         <!-- - - - - settings tab - - - - -->
         <div v-show="activeTab === 'settings'" class="tab-pane">
           <div class="settings-grid">
@@ -2495,6 +2747,55 @@ watch(
 
       </main>
     </div>
+
+    <!-- appointment creation modal -->
+    <Transition name="modal-fade">
+      <div v-if="showApptModal" class="modal-backdrop" @click.self="showApptModal = false">
+        <div class="modal-box modal-box--appt">
+          <div class="modal-head">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f8ff7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <h3 class="modal-title">New Appointment</h3>
+          </div>
+
+          <div class="appt-form">
+            <div class="field">
+              <label class="field-label">Title <span style="color:#ef4444">*</span></label>
+              <input v-model="apptForm.title" type="text" maxlength="100" class="field-input" placeholder="e.g. Doctor Checkup" />
+            </div>
+            <div class="field">
+              <label class="field-label">Location</label>
+              <input v-model="apptForm.location" type="text" maxlength="120" class="field-input" placeholder="e.g. Ottawa General Hospital" />
+            </div>
+            <div class="field">
+              <label class="field-label">Notes</label>
+              <input v-model="apptForm.description" type="text" maxlength="200" class="field-input" placeholder="Optional notes" />
+            </div>
+            <div class="field-row">
+              <div class="field" style="flex:1">
+                <label class="field-label">Start Time <span style="color:#ef4444">*</span></label>
+                <input v-model="apptForm.startAt" type="datetime-local" class="field-input" />
+              </div>
+              <div class="field" style="flex:1">
+                <label class="field-label">End Time</label>
+                <input v-model="apptForm.endAt" type="datetime-local" class="field-input" :min="apptForm.startAt" />
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label">Link Safety Zone <span class="field-optional">(optional)</span></label>
+              <select v-model="apptForm.fenceId" class="field-input field-select">
+                <option :value="null">— None —</option>
+                <option v-for="gf in geofences" :key="gf.id" :value="gf.id">{{ gf.name }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="modal-foot">
+            <button class="btn btn-ghost" @click="showApptModal = false" type="button">Cancel</button>
+            <button class="btn btn-primary" @click="saveAppt" type="button" :disabled="!apptForm.title.trim() || !apptForm.startAt">Save Event</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -3979,6 +4280,7 @@ watch(
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   font-family: inherit;
+  color-scheme: dark;
 }
 
 .field-input:focus {
@@ -3989,6 +4291,19 @@ watch(
 
 .field-input::placeholder {
   color: rgba(180,180,210,0.35);
+}
+
+.field-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a0b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+}
+.field-select option {
+  background: #0d0d1f;
+  color: #f0f0ff;
 }
 
 .slider {
@@ -5322,5 +5637,140 @@ watch(
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ── timed zone toggle ──────────────────────────────────── */
+.timed-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.timed-toggle-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+.timed-toggle-track--on { background: #4f8ff7; border-color: #4f8ff7; }
+.timed-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.timed-toggle-track--on .timed-toggle-thumb { transform: translateX(16px); }
+.field-hint {
+  font-size: 11px;
+  color: rgba(200,200,216,0.45);
+  margin-top: 4px;
+}
+
+/* ── calendar tab ────────────────────────────────────────── */
+.tab-pane--calendar { height: 100%; }
+.cal-page {
+  padding: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.cal-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+.cal-main {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.cal-side {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  padding: 16px;
+  overflow-y: auto;
+  backdrop-filter: blur(10px);
+}
+.cal-side-head { margin-bottom: 14px; }
+.cal-side-title { font-size: 14px; font-weight: 700; color: #fff; }
+.cal-upcoming { display: flex; flex-direction: column; gap: 12px; }
+.cal-upcoming-section { display: flex; flex-direction: column; gap: 6px; }
+.cal-upcoming-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(200,200,216,0.45);
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.cal-upcoming-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.15s;
+}
+.cal-upcoming-item:hover { background: rgba(255,255,255,0.07); }
+.cal-upcoming-item--gf  { border-left: 2px solid #4f8ff7; }
+.cal-upcoming-item--appt{ border-left: 2px solid #a855f7; }
+.cal-upcoming-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #c8c8d8;
+}
+.cal-upcoming-item--gf   .cal-upcoming-icon { background: rgba(79,143,247,0.12); color: #4f8ff7; }
+.cal-upcoming-item--appt .cal-upcoming-icon { background: rgba(168,85,247,0.12); color: #c084fc; }
+.cal-upcoming-body { flex: 1; min-width: 0; }
+.cal-upcoming-title { font-size: 12px; font-weight: 600; color: #e0e0f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-upcoming-sub   { font-size: 10px; color: rgba(200,200,216,0.5); margin-top: 2px; }
+.cal-item-del {
+  background: none;
+  border: none;
+  color: rgba(200,200,216,0.25);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.cal-item-del:hover { color: #f87171; }
+.cal-upcoming-empty {
+  font-size: 12px;
+  color: rgba(200,200,216,0.4);
+  text-align: center;
+  padding: 20px 8px;
+}
+
+/* appointment modal additions */
+.modal-box--appt { max-width: 520px; }
+.appt-form { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+.field-row { display: flex; gap: 12px; }
+
+@media (max-width: 900px) {
+  .cal-layout { grid-template-columns: 1fr; }
+  .cal-side { display: none; }
 }
 </style>
