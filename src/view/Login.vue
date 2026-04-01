@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import FlipWords from '@/components/FlipWords.vue'
 
 const REVIEWS = [
+  { name: 'Michael',            handle: 'Tobermory, ON',      body: 'Hi I\'m Michael' },
   { name: 'Xiu Xiu',            handle: 'San Jose, CA',      body: 'My father kept on falling into the toilet, this life saving cane has kept him on his feet.' },
   { name: 'Priya Sharma',       handle: 'Toronto, ON',      body: 'My father uses the smart cane every day. The real-time alerts give our whole family peace of mind. A true life saver.' },
   { name: 'August Zhang',       handle: 'Richmond Hill, ON', body: 'My grandfather was hesitant about technology but SenseWay changed everything. We helped him set it up in minutes and now he loves his independence.' },
