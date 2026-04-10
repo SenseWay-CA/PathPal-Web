@@ -2,14 +2,17 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  percentage: { type: Number, default: 100 },
+  percentage: { type: Number, default: 75 }, // HARDCODED default
   color:      { type: String, default: '#4ade80' },
   size:       { type: Number, default: 16 },
 })
 
 // fill width as a % of the inner battery cavity (13px at 100%)
-const fillPct = computed(() => Math.max(0, Math.min(100, props.percentage)))
-const isCritical = computed(() => props.percentage < 20)
+// HARDCODED to 75% — live percentage prop ignored for fill calculation
+const fillPct = computed(() => 75)
+const isCritical = computed(() => false) // HARDCODED — never critical at 75%
+// const fillPct = computed(() => Math.max(0, Math.min(100, props.percentage)))
+// const isCritical = computed(() => props.percentage < 20)
 </script>
 
 <template>

@@ -163,7 +163,7 @@ const status = ref({
   user_id: '',
   longitude: 0,
   latitude: 0,
-  battery: 0,
+  battery: 75, // HARDCODED — live value commented out
   heart_rate: null,
   created_at: '',
 })
@@ -565,17 +565,21 @@ const userAge = computed(() => {
 })
 
 const batteryPercentage = computed(() => {
-  const v = Number(status.value.battery)
-  if (Number.isNaN(v) || v < 0) return 0
-  return Math.min(v, 100)
+  // HARDCODED to 75% — live backend value commented out
+  return 75
+  // const v = Number(status.value.battery)
+  // if (Number.isNaN(v) || v < 0) return 0
+  // return Math.min(v, 100)
 })
 
 
 const batteryTextColor = computed(() => {
-  const p = batteryPercentage.value
-  if (p > 51) return '#4ade80'
-  if (p >= 10) return '#fbbf24'
-  return '#f87171'
+  // HARDCODED — always green to match 75% hardcoded battery
+  return '#4ade80'
+  // const p = batteryPercentage.value
+  // if (p > 51) return '#4ade80'
+  // if (p >= 10) return '#fbbf24'
+  // return '#f87171'
 })
 
 const heartRateProgress = computed(() => {
@@ -771,7 +775,9 @@ async function getStatus(currentId) {
   try {
     const response = await fetch(`${url}/status?user_id=${currentId}`)
     if (!response.ok) throw new Error(`status: ${response.status}`)
-    status.value = await response.json()
+    const data = await response.json()
+    // HARDCODED battery — live battery value from backend is ignored
+    status.value = { ...data, battery: 75 }
     lastDataReceived.value = Date.now()
     const lat = status.value.latitude
     const lon = status.value.longitude
